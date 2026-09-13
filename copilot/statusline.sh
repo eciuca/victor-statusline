@@ -160,6 +160,20 @@ except Exception:
     q = {}
 
 from datetime import datetime, timezone, timedelta
+import os
+
+# One clock for the whole line. COPILOT_STATUSLINE_NOW (ISO-8601, with offset)
+# pins it, for the same reason COPILOT_STATUSLINE_COLS pins the width: the
+# screenshot generator has to be reproducible, and this line changes shape with
+# the calendar -- on a weekend there is no daily budget, so the "today" segment
+# drops its percentage and its pace arrow. A picture taken on a Sunday would
+# document the fallback shape as if it were the bar.
+def _now():
+    pin = os.environ.get("COPILOT_STATUSLINE_NOW")
+    if pin:
+        try: return datetime.fromisoformat(pin).astimezone(timezone.utc)
+        except ValueError: pass
+    return datetime.now(timezone.utc)
 
 reset = q.get("reset_utc") or q.get("reset_date")
 reset_dt = None
@@ -214,7 +228,7 @@ if not snap:
 # month-to-date delta since the first refresh of the day.
 WORK_START, WORK_END = 9, 18          # local working hours driving the pace arrow
 
-lnow = datetime.now().astimezone()
+lnow = _now().astimezone()
 today_str = lnow.strftime("%Y-%m-%d")
 today_used = None
 if isinstance(snap, dict) and not snap.get("unlimited"):
@@ -252,7 +266,7 @@ if today_used is not None:
 # --- working days + hours until the reset (weekends excluded) -------------
 time_left = ""
 if reset_dt:
-    now  = datetime.now(timezone.utc)
+    now  = _now()
     secs = int((reset_dt - now).total_seconds())
     if secs > 0:
         hh = (secs % 86400) // 3600
@@ -272,7 +286,7 @@ if isinstance(snap, dict):
         # of the monthly entitlement richer than the calendar says I should be.
         # A point-difference (not a ratio) because it stays readable at both ends
         # of the month, and because it compares directly with the "% left" next to it.
-        now = datetime.now(timezone.utc)
+        now = _now()
         if pr is not None and reset_dt and reset_dt > now:
             ps = datetime(reset_dt.year if reset_dt.month > 1 else reset_dt.year - 1,
                           reset_dt.month - 1 if reset_dt.month > 1 else 12, 1,

@@ -90,7 +90,10 @@ pictures had been stale through several bar changes before anyone re-ran it.
 `make-lines.sh` needs no terminal: the Copilot line's width comes from
 `COPILOT_STATUSLINE_COLS`, forced to 0 there, because that script otherwise sizes
 itself off `/dev/tty` and an agent-run generator produced a picture of a line
-ending in "…".
+ending in "…". Its clock is pinned the same way, with `COPILOT_STATUSLINE_NOW` set
+to a Wednesday afternoon: the Copilot "today" segment has no percentage or pace
+arrow on a weekend, and a Sunday run of the generator drew that fallback shape
+and stopped `render.py` on the missing field (13 Sep 2026).
 
 ## The behaviour docs are part of the change, not a follow-up
 

@@ -180,9 +180,16 @@ shoot cachepay cache cache-miss '✻' 30.0 35.2
 
 # Copilot reads its credit figures from a cache that quota-refresh.sh normally
 # fills from `gh api copilot_internal/user`; we write a synthetic one instead.
-python3 - "$HOME/.copilot/quota-cache.json" <<'PY'
+# The clock is pinned too (see COPILOT_STATUSLINE_NOW in the script): the
+# "today" segment only has a percentage and a pace arrow on a working day, so a
+# generator run on a Sunday would draw the weekend fallback and render.py would
+# stop on the missing field. A Wednesday afternoon, nine days before the reset.
+COPILOT_NOW="2026-09-16T14:00:00+03:00"
+export COPILOT_STATUSLINE_NOW="$COPILOT_NOW"
+python3 - "$HOME/.copilot/quota-cache.json" "$COPILOT_NOW" <<'PY'
 import json, sys, datetime
-reset = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=9)
+now = datetime.datetime.fromisoformat(sys.argv[2])
+reset = (now.astimezone(datetime.timezone.utc) + datetime.timedelta(days=9)
          ).replace(hour=0, minute=0, second=0, microsecond=0)
 json.dump({
     "quota_snapshots": {"premium_interactions": {
@@ -190,7 +197,7 @@ json.dump({
         "percent_remaining": 33.8, "unlimited": False, "has_quota": True}},
     "reset_utc": reset.isoformat().replace("+00:00", "Z"),
     "today_credits": 257.0,
-    "today_credits_date": datetime.datetime.now().strftime("%Y-%m-%d"),
+    "today_credits_date": now.strftime("%Y-%m-%d"),
 }, open(sys.argv[1], "w"))
 PY
 # COLS=0 means "unknown width" to the Copilot script, which disables trimming.
