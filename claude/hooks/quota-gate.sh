@@ -1,8 +1,7 @@
 #!/bin/sh
 # Park this terminal when the 5h quota is nearly gone or the weekly quota has
-# 1% or less left. The 5h gate wakes at its reset; the weekly gate also probes
-# Claude's live usage endpoint every five minutes, so an early reset or plan
-# boost can release unattended work without trusting a stale advertised reset.
+# 1% or less left, but only after the account's live usage endpoint confirms it.
+# Both windows wake at the next probe, so a plan change releases parked work.
 #
 # Wired to UserPromptSubmit, PreToolUse and PostToolUse: those are the three
 # points immediately before an API request. PostToolUse is the tightest (the
@@ -10,13 +9,11 @@
 # build right at the boundary, UserPromptSubmit covers a turn that ended in
 # plain text.
 #
-# `rate_limits` in the hook payload is cached, so it cannot itself discover a
-# mid-window allowance change while every request is parked. The periodic probe
-# (quota-probe.sh, shared with the status line) calls the same authenticated
-# usage endpoint as Claude Code's Usage screen and writes both windows into the
-# shared quota state as the reading no frozen cache can displace; this hook
-# only decides WHEN to run it and reads the state back. The probe's own stamp
-# and lock keep every parked terminal from probing independently.
+# `rate_limits` in the hook payload and shared state can hold an old plan's
+# allowance. Never block an API request based solely on that cache: force a
+# probe before each park, then require its fresh result for the limiting window.
+# If probing fails, let the request through. The probe's lock bounds concurrent
+# requests from multiple hooks.
 #
 # Env knobs: CLAUDE_QUOTA_MIN_PCT (default 5),
 # CLAUDE_WEEKLY_QUOTA_MIN_PCT (default 1), CLAUDE_QUOTA_MAX_SLEEP (604920),
@@ -45,15 +42,19 @@ jitter=0
 [ "$JITTER" -gt 0 ] 2>/dev/null && jitter=$(( $$ % JITTER ))
 session=$(printf '%s' "$INPUT" | jq -r '.session_id // "unknown"' 2>/dev/null)
 [ -n "$session" ] || session=unknown
+verified=0
 
 while :; do
   state=$("$HOME/.claude/hooks/quota-state.sh" read 2>/dev/null) || exit 0
   used=$(printf   '%s' "$state" | cut -d' ' -f1)
   resets=$(printf '%s' "$state" | cut -d' ' -f2)
   meas=$(printf   '%s' "$state" | cut -d' ' -f3)
+  source=$(printf '%s' "$state" | cut -d' ' -f4)
   state7=$("$HOME/.claude/hooks/quota-state.sh" read7 2>/dev/null)
   used7=$(printf   '%s' "$state7" | cut -d' ' -f1)
   resets7=$(printf '%s' "$state7" | cut -d' ' -f2)
+  meas7=$(printf '%s' "$state7" | cut -d' ' -f3)
+  source7=$(printf '%s' "$state7" | cut -d' ' -f4)
   now=$(date +%s)
 
   # Preserve the existing 5h decision exactly: park only on confirmed data.
@@ -82,58 +83,37 @@ while :; do
       ;;
   esac
 
-  # A low cached weekly reading is rechecked live once the shared probe stamp is
-  # PROBE_SECS old. `measured_at` is deliberately irrelevant here: a restarted
-  # status line can mistake its first frozen payload for a new response. The
-  # probe owns the stamp, the lock and the write into quota.json (where the
-  # merge keeps its reading safe from frozen session payloads until the next
-  # poll), so this hook only runs it and reads the state back. A stamp still
-  # `pending` means another hook's request is in flight.
-  probe_pending=0
-  if [ "$go7" = 1 ]; then
-    probe_record=$(sed -n '1p' "$PROBE_STAMP" 2>/dev/null)
-    probe_last=$(printf '%s' "$probe_record" | cut -d' ' -f1)
-    probe_status=$(printf '%s' "$probe_record" | cut -d' ' -f2)
-    case "$probe_last" in ''|*[!0-9]*) probe_last=0 ;; esac
-    if [ "$now" -lt "$((probe_last + PROBE_SECS))" ]; then
-      [ "$probe_status" = pending ] && probe_pending=1
-    else
-      "$PROBE" >/dev/null 2>&1
-      state7=$("$HOME/.claude/hooks/quota-state.sh" read7 2>/dev/null)
-      used7=$(printf   '%s' "$state7" | cut -d' ' -f1)
-      resets7=$(printf '%s' "$state7" | cut -d' ' -f2)
-      go7=$(awk -v u="$used7" -v t="$WEEK_THRESH" -v r="$resets7" -v n="$now" \
-        'BEGIN{ print ((100 - u) <= t && r > n) ? 1 : 0 }')
-      [ "$(sed -n '1p' "$PROBE_STAMP" 2>/dev/null | cut -d' ' -f2)" = pending ] && probe_pending=1
-      printf '%s probe session=%s window=seven_day used=%s%% gate=%s\n' \
-        "$(date '+%Y-%m-%dT%H:%M:%S')" "$session" "$used7" "$go7" >> "$LOG"
-    fi
-  fi
-
   [ "$go" = 1 ] || [ "$go7" = 1 ] || exit 0
 
-  # Another hook owns the live request. Re-read its result promptly instead of
-  # turning the short network call into a full polling-interval sleep.
-  if [ "$go7" = 1 ] && [ "$probe_pending" = 1 ]; then
-    sleep 1
+  if [ "$verified" = 0 ]; then
+    # A failed or concurrent probe is not proof of exhaustion. Let Claude make
+    # its own request instead of parking it on uncertain data.
+    "$PROBE" --force >/dev/null 2>&1 || exit 0
+    verified=1
     continue
   fi
+  verified=0
+  # A concurrent status-line write could replace the probe before this read.
+  # Require the chosen window itself to still carry the account measurement.
+  if [ "$go" = 1 ]; then
+    [ "$source" = probe ] && [ "$((now - meas))" -le 30 ] || exit 0
+  fi
+  if [ "$go7" = 1 ]; then
+    [ "$source7" = probe ] && [ "$((now - meas7))" -le 30 ] || exit 0
+  fi
 
+  probe_last=$(sed -n '1p' "$PROBE_STAMP" 2>/dev/null | cut -d' ' -f1)
+  case "$probe_last" in ''|*[!0-9]*) probe_last=$now ;; esac
+  wake=$((probe_last + PROBE_SECS + jitter))
   if [ "$go7" = 1 ]; then
     window=seven_day
     used=$used7
-    probe_last=$(sed -n '1p' "$PROBE_STAMP" 2>/dev/null)
-    probe_last=$(printf '%s' "$probe_last" | cut -d' ' -f1)
-    case "$probe_last" in
-      ''|*[!0-9]*) probe_last=$now ;;
-    esac
-    wake=$((probe_last + PROBE_SECS + jitter))
     reset_wake=$((resets7 + BUFFER + jitter))
-    [ "$reset_wake" -lt "$wake" ] && wake=$reset_wake
   else
     window=five_hour
-    wake=$((resets + BUFFER + jitter))
+    reset_wake=$((resets + BUFFER + jitter))
   fi
+  [ "$reset_wake" -lt "$wake" ] && wake=$reset_wake
 
   secs=$((wake - now))
   [ "$secs" -le 0 ] && continue

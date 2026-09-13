@@ -87,7 +87,7 @@ out=$(printf '%s' "$payload" | sh "$SCRIPT")
 assert_contains "parked: pause glyph present"        "$out" "💤"
 assert_contains "parked: absolute local wake clock"  "$out" "$back"
 assert_contains "parked: glyph glued to the percentage" "$out" "%💤"
-assert_contains "parked: wake clock hangs off the window countdown" "$out" "→ $back"
+assert_contains "parked: next probe precedes the reset countdown" "$out" "%💤 → $back /"
 assert_not_contains "parked: no second sleep countdown"  "$out" "45m"
 
 # --- Case 3: a park marker whose wake time has ALREADY passed (stale/woken) --

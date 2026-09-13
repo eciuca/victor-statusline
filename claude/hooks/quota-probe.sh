@@ -17,9 +17,10 @@
 # Stamp `~/.claude/quota-probe`, first line "<epoch> <pending|ok|failed>". The
 # epoch is when the attempt STARTED, written before curl so that concurrent
 # callers converge on the same next deadline even when the request fails;
-# `pending` is what lets a parked gate re-read a second later instead of
-# sleeping a whole interval. A failed attempt keeps the interval: retrying on
-# every render would turn one outage into a request storm.
+# `pending` identifies an in-flight request. A gate that cannot get its own
+# confirmed reading lets Claude proceed rather than parking on uncertain data.
+# A failed attempt keeps the interval: retrying on every status-line render
+# would turn one outage into a request storm.
 #
 # The OAuth token comes from the Keychain item Claude Code itself uses and is
 # never written anywhere. The weekly figure is the TIGHTEST of the account's

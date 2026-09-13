@@ -65,12 +65,12 @@ second off (§1.1); everything else holds still:
 Opus 5h 220K | ↑87% / 1h42 | $1.5 (>1h⇒miss+=$2.1) ⊂ $23 | ai | (+15)82% / 3wd8h
 ```
 
-Five-hour quota exhausted: `quota-gate.sh` has parked this terminal. The sleep
-glyph rides on the quota figure it belongs to, and the wake clock hangs off the
-window countdown that is already running down to it:
+Five-hour quota nearly exhausted and confirmed by the account: `quota-gate.sh`
+has parked this terminal. The arrow is the next live check; the duration is
+time until the window resets:
 
 ```
-Opus 5h 3%💤 / 4h51 → 21:15 | ai | (+15)82% / 3wd8h
+Opus 5h 3%💤 → 21:15 / 4h51 | ai | (+15)82% / 3wd8h
 ```
 
 The same gate also parks at **1% or less weekly quota**, but marks the weekly
@@ -473,63 +473,27 @@ was already `23m` and stays so — the `h` only appears when there are hours to
 show — and the minutes stay zero-padded behind it (`1h05`) so the field does not
 change width as the hour drains.
 
-### Parked on 5-hour quota — `3%💤 / 4h51 → 21:15`
+### Parked on 5-hour quota — `3%💤 → 21:15 / 4h51`
 
-When `quota-gate.sh` has put this terminal to sleep because the 5-hour window is
-nearly exhausted, the quota segment does **not** grow a third piece. Two glyphs
-are folded into the two figures it already shows:
+When a live account check confirms the 5-hour window is nearly exhausted,
+`quota-gate.sh` parks the terminal until the next probe, at most five minutes
+away by default. The quota segment shows both clocks explicitly:
 
 | Piece | Answers | Source |
 |-------|---------|--------|
 | `💤` glued to the `%` | *is this terminal parked on this window?* | `five_hour` in `~/.claude/quota-park/<session_id>` |
-| `→ 21:15` after the countdown | *what time does it wake?* | the wake epoch from that file, as a local 24h clock |
+| `→ 21:15` before the countdown | *when does it recheck the account?* | the wake epoch from that file, as a local 24h clock |
+| `/ 4h51` | *how long until the advertised window reset?* | the five-hour `resets_at` |
 
-The `💤` is unambiguous on its own (nothing else in the bar uses it), so it
-doubles as the "execution is paused" indicator — there is no separate word for
-"paused", because there is no other reason this glyph would be here.
+The next check and the reset are different events. A plan upgrade or an early
+allowance change can release the terminal at the next probe. The old, separate
+sleep countdown would add a third duration without helping decide when the
+terminal might resume. The moving reset countdown still shows that the render
+loop is alive while the gate's `sleep` runs in a child process.
 
-**The sleep used to print its own countdown, and that was the same number
-twice.** The old shape was `↓1% / 2h20 left • 💤2h22 / 23:21`. The gate sleeps
-until the 5-hour window resets, so its countdown and the window countdown are
-the same quantity *by construction* — thirteen columns spent restating `2h20`
-with a different rounding, and two near-identical durations side by side invite
-exactly the wrong question ("why do they disagree?"). What being parked actually
-adds to the bar is one bit — *this terminal is not working* — plus the wall-clock
-time it comes back. So the bit became a glyph on the percentage, and the clock
-became a `→` hanging off the duration that was already counting down to it:
-`↓1%💤 / 2h20 → 23:21`.
-
-**`→` rather than a second `/`.** The `/` in this bar joins two readings of one
-thing (quota and time, both readings of the window). The wake clock is not a
-second reading of the countdown — it is where the countdown *lands*. An arrow
-says that in one character, and keeps the pair from looking like the `98% /
-4h47` grammar applied to two clocks.
-
-**Nothing is lost by dropping the second countdown, including the heartbeat.**
-The reason a countdown was there at all is that a moving number proves the
-render loop is alive: a terminal frozen *on purpose* has to be told apart from
-one that is hung, and a static `💤21:15` cannot do it. But `refreshInterval`
-re-runs this script regardless of activity and the gate's `sleep` runs in a
-child process, so the *window* countdown ticks down every second while the turn
-is blocked. It does that job now, and it was always going to be on screen
-anyway.
-
-**The clock is what a countdown can't be: plannable without arithmetic.**
-`💤45m` read at 2am still makes you do the addition before you know whether
-that's worth waiting on or worth going to bed over. `21:15` is the number you
-check the room against.
-
-**It falls back to the sleep countdown if the clock can't be resolved.** `date
--r $pwake` is the only thing that can fail here, and only if `$pwake` is
-malformed. In that one case the glyph carries the countdown again (`💤2h22`) —
-the second duration earns its columns precisely when it is the only absolute
-information available. A missing clock next to a correct countdown is a smaller
-loss than a wrong clock beside it.
-
-`$pwake` is not the bare `resets_at` from the API — `quota-gate.sh` adds a
-buffer and some jitter before writing it (see its own comments), so `21:15` is
-a few minutes *past* the true window reset, deliberately: better a few minutes
-early back at your desk than a wake attempt that immediately 429s again.
+The clock falls back to a short sleep countdown glued to `💤` if `date -r`
+cannot resolve the wake epoch. Near the window reset, the gate may use
+`resets_at` plus a buffer and jitter as its next deadline.
 
 The marker is one line, `<wake-epoch> <window>`. A legacy marker containing only
 the epoch means `five_hour`, so upgrading the renderer while an old gate is
@@ -571,16 +535,17 @@ other two on. Registering only `UserPromptSubmit` — the obvious single choice 
 gates the *start* of a turn and then lets a fifty-tool-call agentic run burn
 through the boundary uninterrupted.
 
-The hook takes no matcher: every tool, every prompt. It drains stdin, reads the
-shared quota state (§"Cross-terminal quota state"), and either exits in
-milliseconds or sleeps — so the cost of having it on all three events is three
-`sh` startups per tool round-trip, not three probes.
+The hook takes no matcher: every tool, every prompt. It drains stdin and reads
+the shared quota state (§"Cross-terminal quota state"). When that cache says a
+window is low, the hook checks the account live before it can sleep. If the
+probe fails, the hook lets Claude make its own request rather than blocking on
+uncertain data.
 
 **The timeout is the mechanism, not a safety margin.** `605040` seconds is a
 week plus four minutes, and it has to cover the *whole* park, because Claude
 Code kills a hook that overruns its timeout and then proceeds with the request
 — precisely the outcome the gate exists to prevent. The figure is not the length
-of one `sleep`: a weekly park sleeps in ~5-minute hops between live probes (§4),
+of one `sleep`: both windows sleep in ~5-minute hops between live probes (§4),
 but it is **one hook process looping**, so what the timeout has to outlast is
 the sum — up to a full weekly window. Left at the 60-second default, an
 exhausted terminal would pause for a minute and then 429. The gate's own
@@ -597,7 +562,7 @@ solves inside the bar.
 useful when a long unattended run is *meant* to fail fast rather than sit for
 five hours. `CLAUDE_QUOTA_MIN_PCT` (5) and `CLAUDE_WEEKLY_QUOTA_MIN_PCT` (1) are
 the thresholds, `CLAUDE_QUOTA_PROBE_SECS` (300) the live re-check interval while
-parked on the weekly window (§4).
+parked on either window (§4).
 
 **On an API key there is nothing to gate.** The quota windows only exist on a
 subscription; on an API key Claude Code sends `rate_limits: null` (the schema
@@ -1172,36 +1137,33 @@ stays after the probe clock. These are deliberately different facts: the arrow
 says when the gate will check again; `/ 7h` says how much working time the cached
 window claims remains.
 
-A cached low weekly reading is actionable, but no longer trusted for one long
-sleep. The observed counterexample was a plan upgrade: the shared cache still
-said `99%` used while Claude's live Usage endpoint had already reset the account
-to `0%`. `CLAUDE_QUOTA_PROBE_SECS` (alias `CLAUDE_WEEKLY_QUOTA_PROBE_SECS`)
-therefore defaults to `300`. At that interval the parked hook runs
-`quota-probe.sh` — the same probe the status line kicks in the background —
-which calls Claude's authenticated `/api/oauth/usage` endpoint, writes both
-windows into `quota.json` with `source: probe`, and so releases the already
-queued request as soon as more quota exists. The OAuth token is read from the
-same macOS Keychain item Claude Code uses; it is never written to the stamp or
-the log.
+A cached low reading is a reason to check, not a reason to stop execution. The
+observed counterexample was a Max 5x → Max 20x upgrade: the shared cache said
+`99%` used while Claude's live Usage endpoint said `11%`. Before either the
+5-hour or weekly gate parks, it forces `quota-probe.sh` to check the account.
+While parked, `CLAUDE_QUOTA_PROBE_SECS` (alias
+`CLAUDE_WEEKLY_QUOTA_PROBE_SECS`) defaults to `300`, bounding each sleep. The
+probe writes both windows into `quota.json` with `source: probe`; the next check
+releases the queued request as soon as more quota exists. This works the same
+way across Pro, Max 5x, and Max 20x because the decision uses the account's
+current percentage, independent of the plan name. The OAuth token is read from
+the same macOS Keychain item Claude Code uses; it is never written to the stamp
+or the log.
 
 `~/.claude/quota-probe` is the probe's stamp, `<epoch> pending|ok|failed`, the
 epoch being when the attempt *started* — written before the request, so every
 caller converges on the same next deadline even when it fails. Every parked
 terminal uses it as its deadline; the value itself lives only in `quota.json`,
-where the merge keeps it safe from frozen session payloads for two probe
-intervals, so nothing can paint `-1%` again after the gate has correctly
-released. A `mkdir` lock makes concurrent callers — the gate in every parked
-terminal, the status line in every open one — send one request between them;
-hooks that see `pending` re-read after one second, so a successful refresh
-releases all of them instead of leaving the non-owner hooks asleep for five
-minutes; `failed` retains the normal retry backoff. PID-derived jitter still
-spreads terminals around that deadline.
+where the merge keeps it safe from all session payloads for two probe
+intervals, including a first render falsely marked fresh. A `mkdir` lock keeps
+concurrent callers from sending duplicate requests; a hook that cannot obtain
+a live measurement lets Claude proceed. PID-derived jitter spreads parked
+terminals around the next probe deadline.
 
-If both windows are exhausted, the five-minute weekly probe remains the wake
-event. When it returns quota, the loop re-evaluates the five-hour gate and waits
-for its reset too if necessary. The `604920`-second safety ceiling and `605040`
-hook timeouts remain, although an individual weekly sleep is now only about five
-minutes.
+If both windows are exhausted, the weekly cell carries the sleep glyph. Each
+live check re-evaluates both windows before parking again. The `604920`-second
+safety ceiling and `605040` hook timeout remain, although an individual sleep
+is now only about five minutes.
 
 ---
 
@@ -1551,15 +1513,13 @@ that every status line writes (~1×/sec) and reads back, for **both** windows:
   `seven_day.utilization`; the 5h figure gets corrected by the same request,
   which is also why it never shows the grey `?` while the probe is healthy.
 - **A measurement outranks a cache.** While a window's stored reading is the
-  probe's and younger than two probe intervals, a *non-fresh* session reading
-  never displaces it, whatever it says. Fresh session readings keep the rules
-  above — they are live observations, and if they run higher the account
-  really did move. A frozen payload mistaken for fresh (a session's first
-  render after `/tmp` was emptied) can therefore still win for one interval;
-  the next probe puts the measured number back, so the bar converges within
-  minutes either way. The parked gate runs the same probe in the foreground,
-  and hooks that arrive during the request see the stamp's `pending` state and
-  recheck it after one second instead of sleeping for the full interval.
+  probe's and younger than two probe intervals, no session reading displaces
+  it. A session's first render can mistake frozen headers for a fresh API
+  response, so that flag alone cannot establish which plan the reading belongs
+  to. If the probe ages out, session readings become the fallback. Before the
+  gate parks on a low cache reading, it forces a live probe and requires the
+  chosen window to carry that measurement. A failed probe lets Claude make its
+  request rather than suspending it on uncertain data.
 - **Self-healing instead of locking.** Every terminal writes unlocked, so two
   writers can interleave and lose an update — but the merge is monotone-or-fresher
   and re-runs a second later, so a lost update heals itself. A lock would cost more
@@ -2141,26 +2101,15 @@ if [ -n "$five" ]; then
   # was five columns and a word-shaped speed bump between the numbers and the
   # next segment, on the segment that changes fastest. Dropped in both shapes,
   # with and without a duration.
-  # Parked by quota-gate.sh: this terminal is sleeping until the window resets.
-  # The sleep is folded INTO the quota reading rather than parked next to it as
-  # its own "• 💤2h22 / 23:21" clause, because the old shape printed the same
-  # fact twice. The gate sleeps until the 5h window resets, so its countdown and
-  # the window countdown are the same number by construction — "↓1% / 2h20 left
-  # • 💤2h22 / 23:21" spent thirteen columns restating "2h20" with a different
-  # rounding, and the two near-identical durations invited exactly the wrong
-  # question ("why do they disagree?"). What sleeping actually adds is one bit —
-  # this terminal is parked, not working — plus the wall-clock time it comes
-  # back. So the bit becomes a 💤 glued onto the percentage, where it modifies
-  # the reading it belongs to, and the wake clock becomes "→ 23:21" hanging off
-  # the duration that was already counting down to it: "↓1%💤 / 2h20 → 23:21".
-  # The arrow is doing what the second "/" cannot — "/" joins two readings of
-  # one thing, "→" says this duration LANDS on that clock.
+  # Parked by quota-gate.sh: the account confirmed low quota, and the gate will
+  # recheck at $pwake. The glyph stays glued to the quota figure; the next probe
+  # clock precedes the reset countdown: "↓1%💤 → 23:21 / 2h20". The two clocks
+  # describe different facts, just as they do in the weekly cell.
   #
   # The countdown is still what proves the terminal is alive rather than hung:
   # `refreshInterval` re-runs this script regardless of activity and the gate's
   # `sleep` runs in a child process, so $dur ticks down every render while the
-  # turn is blocked. It is the window countdown doing that job now instead of a
-  # second copy of it.
+  # turn is blocked.
   #
   # If `date -r` cannot resolve $pwake there is no clock to land on, and the
   # sleep countdown comes back glued to the glyph ("💤2h22") rather than being
@@ -2199,7 +2148,11 @@ if [ -n "$five" ]; then
   # the digits. A ground cannot be cancelled from the inside, and it warns
   # across the whole cell instead of two characters within it.
   if [ -n "$dur" ]; then
-    body="${pct_part}${sleep_mark} / ${dur}${sleep_tail}"
+    if [ -n "$sleep_tail" ]; then
+      body="${pct_part}${sleep_mark}${sleep_tail} / ${dur}"
+    else
+      body="${pct_part}${sleep_mark} / ${dur}"
+    fi
   else
     body="${pct_part}${sleep_mark}${sleep_tail}"
   fi
@@ -3550,13 +3503,10 @@ parses `quota.json` directly.
 # ("6% left / 10h") until the window reset. The same happens on any
 # Pro <-> Max 5x <-> Max 20x switch in either direction, and whenever Anthropic
 # adjusts limits mid-window. Hence the rule: while a window's stored reading
-# came from the probe and is younger than 2 x $PROBE_SECS, a NON-fresh session
-# reading never displaces it, whatever its value -- a cache cannot outrank a
-# measurement. Fresh session readings keep the rules above: they are live
-# observations of the same account, and if they run higher the account really
-# did move. (A frozen payload mistaken for fresh -- a session's first render
-# after /tmp was emptied -- can still win for one probe interval; the next probe
-# puts the measured number back, so the bar converges within minutes either way.)
+# came from the probe and is younger than 2 x $PROBE_SECS, no session reading
+# displaces it. The status line can mark a frozen payload as "fresh" on its
+# first render, so that flag cannot establish that the session knows the current
+# plan. After the probe ages out, session readings are the fallback.
 #
 # CONCURRENCY: every statusline writes this ~2x/sec with no lock. Two writers
 # can interleave and one update can be lost, but the merge is monotone-or-fresher
@@ -3620,10 +3570,9 @@ merge() {
   case "$_u" in ''|*[!0-9.]*) echo "$_ou $_or $_om $_os"; return ;; esac
   case "$_r" in ''|*[!0-9]*) _r=0 ;; esac
   case "$_om" in ''|*[!0-9]*) _om=0 ;; esac
-  # A probe reading younger than two probe intervals is a measurement; a
-  # non-fresh session reading is a cache. The cache never wins, whatever it
-  # says -- that is the whole plan-switch fix (see the header).
-  if [ "$_os" = probe ] && [ "$_f" != 1 ] && [ "$((_now - _om))" -lt "$((2 * PROBE_SECS))" ]; then
+  # A probe reading younger than two probe intervals is an account measurement.
+  # Even a "fresh" session value may be an old-plan cache on first render.
+  if [ "$_os" = probe ] && [ "$((_now - _om))" -lt "$((2 * PROBE_SECS))" ]; then
     echo "$_ou $_or $_om $_os"; return
   fi
   # Take the new reading when it is newer BY VALUE (the original order), or when
@@ -3775,9 +3724,10 @@ line and the gate both invoke it on their own schedule.
 # Stamp `~/.claude/quota-probe`, first line "<epoch> <pending|ok|failed>". The
 # epoch is when the attempt STARTED, written before curl so that concurrent
 # callers converge on the same next deadline even when the request fails;
-# `pending` is what lets a parked gate re-read a second later instead of
-# sleeping a whole interval. A failed attempt keeps the interval: retrying on
-# every render would turn one outage into a request storm.
+# `pending` identifies an in-flight request. A gate that cannot get its own
+# confirmed reading lets Claude proceed rather than parking on uncertain data.
+# A failed attempt keeps the interval: retrying on every status-line render
+# would turn one outage into a request storm.
 #
 # The OAuth token comes from the Keychain item Claude Code itself uses and is
 # never written anywhere. The weekly figure is the TIGHTEST of the account's
@@ -3903,9 +3853,8 @@ installs a script nothing ever calls.
 ```sh
 #!/bin/sh
 # Park this terminal when the 5h quota is nearly gone or the weekly quota has
-# 1% or less left. The 5h gate wakes at its reset; the weekly gate also probes
-# Claude's live usage endpoint every five minutes, so an early reset or plan
-# boost can release unattended work without trusting a stale advertised reset.
+# 1% or less left, but only after the account's live usage endpoint confirms it.
+# Both windows wake at the next probe, so a plan change releases parked work.
 #
 # Wired to UserPromptSubmit, PreToolUse and PostToolUse: those are the three
 # points immediately before an API request. PostToolUse is the tightest (the
@@ -3913,13 +3862,11 @@ installs a script nothing ever calls.
 # build right at the boundary, UserPromptSubmit covers a turn that ended in
 # plain text.
 #
-# `rate_limits` in the hook payload is cached, so it cannot itself discover a
-# mid-window allowance change while every request is parked. The periodic probe
-# (quota-probe.sh, shared with the status line) calls the same authenticated
-# usage endpoint as Claude Code's Usage screen and writes both windows into the
-# shared quota state as the reading no frozen cache can displace; this hook
-# only decides WHEN to run it and reads the state back. The probe's own stamp
-# and lock keep every parked terminal from probing independently.
+# `rate_limits` in the hook payload and shared state can hold an old plan's
+# allowance. Never block an API request based solely on that cache: force a
+# probe before each park, then require its fresh result for the limiting window.
+# If probing fails, let the request through. The probe's lock bounds concurrent
+# requests from multiple hooks.
 #
 # Env knobs: CLAUDE_QUOTA_MIN_PCT (default 5),
 # CLAUDE_WEEKLY_QUOTA_MIN_PCT (default 1), CLAUDE_QUOTA_MAX_SLEEP (604920),
@@ -3948,15 +3895,19 @@ jitter=0
 [ "$JITTER" -gt 0 ] 2>/dev/null && jitter=$(( $$ % JITTER ))
 session=$(printf '%s' "$INPUT" | jq -r '.session_id // "unknown"' 2>/dev/null)
 [ -n "$session" ] || session=unknown
+verified=0
 
 while :; do
   state=$("$HOME/.claude/hooks/quota-state.sh" read 2>/dev/null) || exit 0
   used=$(printf   '%s' "$state" | cut -d' ' -f1)
   resets=$(printf '%s' "$state" | cut -d' ' -f2)
   meas=$(printf   '%s' "$state" | cut -d' ' -f3)
+  source=$(printf '%s' "$state" | cut -d' ' -f4)
   state7=$("$HOME/.claude/hooks/quota-state.sh" read7 2>/dev/null)
   used7=$(printf   '%s' "$state7" | cut -d' ' -f1)
   resets7=$(printf '%s' "$state7" | cut -d' ' -f2)
+  meas7=$(printf '%s' "$state7" | cut -d' ' -f3)
+  source7=$(printf '%s' "$state7" | cut -d' ' -f4)
   now=$(date +%s)
 
   # Preserve the existing 5h decision exactly: park only on confirmed data.
@@ -3985,58 +3936,37 @@ while :; do
       ;;
   esac
 
-  # A low cached weekly reading is rechecked live once the shared probe stamp is
-  # PROBE_SECS old. `measured_at` is deliberately irrelevant here: a restarted
-  # status line can mistake its first frozen payload for a new response. The
-  # probe owns the stamp, the lock and the write into quota.json (where the
-  # merge keeps its reading safe from frozen session payloads until the next
-  # poll), so this hook only runs it and reads the state back. A stamp still
-  # `pending` means another hook's request is in flight.
-  probe_pending=0
-  if [ "$go7" = 1 ]; then
-    probe_record=$(sed -n '1p' "$PROBE_STAMP" 2>/dev/null)
-    probe_last=$(printf '%s' "$probe_record" | cut -d' ' -f1)
-    probe_status=$(printf '%s' "$probe_record" | cut -d' ' -f2)
-    case "$probe_last" in ''|*[!0-9]*) probe_last=0 ;; esac
-    if [ "$now" -lt "$((probe_last + PROBE_SECS))" ]; then
-      [ "$probe_status" = pending ] && probe_pending=1
-    else
-      "$PROBE" >/dev/null 2>&1
-      state7=$("$HOME/.claude/hooks/quota-state.sh" read7 2>/dev/null)
-      used7=$(printf   '%s' "$state7" | cut -d' ' -f1)
-      resets7=$(printf '%s' "$state7" | cut -d' ' -f2)
-      go7=$(awk -v u="$used7" -v t="$WEEK_THRESH" -v r="$resets7" -v n="$now" \
-        'BEGIN{ print ((100 - u) <= t && r > n) ? 1 : 0 }')
-      [ "$(sed -n '1p' "$PROBE_STAMP" 2>/dev/null | cut -d' ' -f2)" = pending ] && probe_pending=1
-      printf '%s probe session=%s window=seven_day used=%s%% gate=%s\n' \
-        "$(date '+%Y-%m-%dT%H:%M:%S')" "$session" "$used7" "$go7" >> "$LOG"
-    fi
-  fi
-
   [ "$go" = 1 ] || [ "$go7" = 1 ] || exit 0
 
-  # Another hook owns the live request. Re-read its result promptly instead of
-  # turning the short network call into a full polling-interval sleep.
-  if [ "$go7" = 1 ] && [ "$probe_pending" = 1 ]; then
-    sleep 1
+  if [ "$verified" = 0 ]; then
+    # A failed or concurrent probe is not proof of exhaustion. Let Claude make
+    # its own request instead of parking it on uncertain data.
+    "$PROBE" --force >/dev/null 2>&1 || exit 0
+    verified=1
     continue
   fi
+  verified=0
+  # A concurrent status-line write could replace the probe before this read.
+  # Require the chosen window itself to still carry the account measurement.
+  if [ "$go" = 1 ]; then
+    [ "$source" = probe ] && [ "$((now - meas))" -le 30 ] || exit 0
+  fi
+  if [ "$go7" = 1 ]; then
+    [ "$source7" = probe ] && [ "$((now - meas7))" -le 30 ] || exit 0
+  fi
 
+  probe_last=$(sed -n '1p' "$PROBE_STAMP" 2>/dev/null | cut -d' ' -f1)
+  case "$probe_last" in ''|*[!0-9]*) probe_last=$now ;; esac
+  wake=$((probe_last + PROBE_SECS + jitter))
   if [ "$go7" = 1 ]; then
     window=seven_day
     used=$used7
-    probe_last=$(sed -n '1p' "$PROBE_STAMP" 2>/dev/null)
-    probe_last=$(printf '%s' "$probe_last" | cut -d' ' -f1)
-    case "$probe_last" in
-      ''|*[!0-9]*) probe_last=$now ;;
-    esac
-    wake=$((probe_last + PROBE_SECS + jitter))
     reset_wake=$((resets7 + BUFFER + jitter))
-    [ "$reset_wake" -lt "$wake" ] && wake=$reset_wake
   else
     window=five_hour
-    wake=$((resets + BUFFER + jitter))
+    reset_wake=$((resets + BUFFER + jitter))
   fi
+  [ "$reset_wake" -lt "$wake" ] && wake=$reset_wake
 
   secs=$((wake - now))
   [ "$secs" -le 0 ] && continue

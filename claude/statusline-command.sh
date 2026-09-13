@@ -493,26 +493,15 @@ if [ -n "$five" ]; then
   # was five columns and a word-shaped speed bump between the numbers and the
   # next segment, on the segment that changes fastest. Dropped in both shapes,
   # with and without a duration.
-  # Parked by quota-gate.sh: this terminal is sleeping until the window resets.
-  # The sleep is folded INTO the quota reading rather than parked next to it as
-  # its own "• 💤2h22 / 23:21" clause, because the old shape printed the same
-  # fact twice. The gate sleeps until the 5h window resets, so its countdown and
-  # the window countdown are the same number by construction — "↓1% / 2h20 left
-  # • 💤2h22 / 23:21" spent thirteen columns restating "2h20" with a different
-  # rounding, and the two near-identical durations invited exactly the wrong
-  # question ("why do they disagree?"). What sleeping actually adds is one bit —
-  # this terminal is parked, not working — plus the wall-clock time it comes
-  # back. So the bit becomes a 💤 glued onto the percentage, where it modifies
-  # the reading it belongs to, and the wake clock becomes "→ 23:21" hanging off
-  # the duration that was already counting down to it: "↓1%💤 / 2h20 → 23:21".
-  # The arrow is doing what the second "/" cannot — "/" joins two readings of
-  # one thing, "→" says this duration LANDS on that clock.
+  # Parked by quota-gate.sh: the account confirmed low quota, and the gate will
+  # recheck at $pwake. The glyph stays glued to the quota figure; the next probe
+  # clock precedes the reset countdown: "↓1%💤 → 23:21 / 2h20". The two clocks
+  # describe different facts, just as they do in the weekly cell.
   #
   # The countdown is still what proves the terminal is alive rather than hung:
   # `refreshInterval` re-runs this script regardless of activity and the gate's
   # `sleep` runs in a child process, so $dur ticks down every render while the
-  # turn is blocked. It is the window countdown doing that job now instead of a
-  # second copy of it.
+  # turn is blocked.
   #
   # If `date -r` cannot resolve $pwake there is no clock to land on, and the
   # sleep countdown comes back glued to the glyph ("💤2h22") rather than being
@@ -551,7 +540,11 @@ if [ -n "$five" ]; then
   # the digits. A ground cannot be cancelled from the inside, and it warns
   # across the whole cell instead of two characters within it.
   if [ -n "$dur" ]; then
-    body="${pct_part}${sleep_mark} / ${dur}${sleep_tail}"
+    if [ -n "$sleep_tail" ]; then
+      body="${pct_part}${sleep_mark}${sleep_tail} / ${dur}"
+    else
+      body="${pct_part}${sleep_mark} / ${dur}"
+    fi
   else
     body="${pct_part}${sleep_mark}${sleep_tail}"
   fi

@@ -49,13 +49,10 @@
 # ("6% left / 10h") until the window reset. The same happens on any
 # Pro <-> Max 5x <-> Max 20x switch in either direction, and whenever Anthropic
 # adjusts limits mid-window. Hence the rule: while a window's stored reading
-# came from the probe and is younger than 2 x $PROBE_SECS, a NON-fresh session
-# reading never displaces it, whatever its value -- a cache cannot outrank a
-# measurement. Fresh session readings keep the rules above: they are live
-# observations of the same account, and if they run higher the account really
-# did move. (A frozen payload mistaken for fresh -- a session's first render
-# after /tmp was emptied -- can still win for one probe interval; the next probe
-# puts the measured number back, so the bar converges within minutes either way.)
+# came from the probe and is younger than 2 x $PROBE_SECS, no session reading
+# displaces it. The status line can mark a frozen payload as "fresh" on its
+# first render, so that flag cannot establish that the session knows the current
+# plan. After the probe ages out, session readings are the fallback.
 #
 # CONCURRENCY: every statusline writes this ~2x/sec with no lock. Two writers
 # can interleave and one update can be lost, but the merge is monotone-or-fresher
@@ -119,10 +116,9 @@ merge() {
   case "$_u" in ''|*[!0-9.]*) echo "$_ou $_or $_om $_os"; return ;; esac
   case "$_r" in ''|*[!0-9]*) _r=0 ;; esac
   case "$_om" in ''|*[!0-9]*) _om=0 ;; esac
-  # A probe reading younger than two probe intervals is a measurement; a
-  # non-fresh session reading is a cache. The cache never wins, whatever it
-  # says -- that is the whole plan-switch fix (see the header).
-  if [ "$_os" = probe ] && [ "$_f" != 1 ] && [ "$((_now - _om))" -lt "$((2 * PROBE_SECS))" ]; then
+  # A probe reading younger than two probe intervals is an account measurement.
+  # Even a "fresh" session value may be an old-plan cache on first render.
+  if [ "$_os" = probe ] && [ "$((_now - _om))" -lt "$((2 * PROBE_SECS))" ]; then
     echo "$_ou $_or $_om $_os"; return
   fi
   # Take the new reading when it is newer BY VALUE (the original order), or when

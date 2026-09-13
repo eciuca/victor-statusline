@@ -195,18 +195,27 @@ assert_eq "weekly: hourly override probes at most once per hour" \
   "$(line_count "$probe_calls")" "1"
 stop_gate
 
-# The existing 5h path remains active at 4% left (its strict <5 rule).
+# The 5h path remains active at 4% left (its strict <5 rule), after a live
+# account check. It wakes at the next probe so a plan upgrade releases it.
 session=quota-gate-test-five-hour
+probe_calls="$TMP/five-hour-probe.calls"
 write_state 96 "$five_reset" "$now" 98 "$week_reset" "$now"
 printf '{"session_id":"%s"}' "$session" \
-  | CLAUDE_QUOTA_JITTER=0 CLAUDE_QUOTA_WAKE_BUFFER=0 sh "$GATE" \
+  | CLAUDE_QUOTA_JITTER=0 CLAUDE_QUOTA_WAKE_BUFFER=0 \
+      CLAUDE_QUOTA_PROBE_FILE="$TMP/five-hour-probe.stamp" \
+      CLAUDE_WEEKLY_QUOTA_PROBE_COMMAND="$probe" \
+      CLAUDE_TEST_PROBE_CALLS="$probe_calls" \
+      CLAUDE_TEST_PROBE_USED5=96 CLAUDE_TEST_PROBE_RESET5="$five_reset" \
+      CLAUDE_TEST_PROBE_USED=98 CLAUDE_TEST_PROBE_RESET="$week_reset" sh "$GATE" \
       >/dev/null 2>&1 &
 gate_pid=$!
 marker="$HOME/.claude/quota-park/$session"
 wait_for_marker "$marker"
 contents=$(sed -n '1p' "$marker" 2>/dev/null)
-assert_eq "five-hour: existing low-quota path still parks" \
-  "$contents" "$five_reset five_hour"
+assert_eq "five-hour: confirmed low quota parks on the five-hour window" \
+  "$(printf '%s' "$contents" | cut -d' ' -f2)" "five_hour"
+assert_between "five-hour: next probe bounds the park" \
+  "$(printf '%s' "$contents" | cut -d' ' -f1)" "$((now + 299))" "$((now + 305))"
 stop_gate
 
 # If both limits are exhausted, the configured hourly weekly probe is the first
@@ -220,6 +229,7 @@ printf '{"session_id":"%s"}' "$session" \
       CLAUDE_QUOTA_PROBE_FILE="$TMP/weekly-both-probe.stamp" \
       CLAUDE_WEEKLY_QUOTA_PROBE_COMMAND="$probe" \
       CLAUDE_TEST_PROBE_CALLS="$probe_calls" \
+      CLAUDE_TEST_PROBE_USED5=96 CLAUDE_TEST_PROBE_RESET5="$five_reset" \
       CLAUDE_TEST_PROBE_USED=99 CLAUDE_TEST_PROBE_RESET="$week_reset" sh "$GATE" \
       >/dev/null 2>&1 &
 gate_pid=$!
