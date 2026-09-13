@@ -267,6 +267,49 @@ out=$(printf '%s' "$payload" | CLAUDE_SUB_TAIL=4000 sh "$SCRIPT")
 assert_not_contains "scrolled: marker outside the tail stays retired" "$out" "F5.1"
 assert_not_contains "scrolled: no chip left at all"                   "$out" "+{"
 
+# --- Case 8: an async agent resumed with SendMessage ------------------------
+# The first stop earns the agent a marker, and the marker is remembered. A
+# SendMessage addressed to its id restarts it under the same toolUseId, so the
+# remembered marker alone would hide it for the rest of the session while it
+# works (13 Sep 2026: chip showed one agent, the native list two). A resume seen
+# AFTER the last marker means live again; the next stop retires it once more.
+session="statusline-test-resumed"
+sub="$proj/$session/subagents"
+mkdir -p "$sub"
+tp="$proj/$session.jsonl"
+mk_agent F claude-fable-5-1 high fable
+{
+  printf '{"type":"user","message":{"content":[{"tool_use_id":"toolu_F","type":"tool_result","content":[{"type":"text","text":"Async agent launched successfully. agentId: F"}]}]}}\n'
+  printf '{"type":"user","message":{"content":"<task-notification>\\n<task-id>F</task-id>\\n<tool-use-id>toolu_F</tool-use-id>\\n<status>completed</status>\\n</task-notification>"}}\n'
+} > "$tp"
+payload=$(cat <<JSON
+{"session_id":"$session","model":{"display_name":"Opus 5 (1M context)"},
+ "effort":{"level":"high"},"transcript_path":"$tp",
+ "context_window":{"used_percentage":6,"context_window_size":1000000},
+ "rate_limits":{"five_hour":{"used_percentage":40,"resets_at":$reset}}}
+JSON
+)
+out=$(printf '%s' "$payload" | sh "$SCRIPT")
+assert_not_contains "resumed: the first stop retires the agent" "$out" "F5.1"
+# Enough traffic to push that marker out of a small tail, then the resume. The
+# remembered id says done; the resume inside the window must win over it.
+i=0
+while [ "$i" -lt 200 ]; do
+  printf '{"type":"assistant","message":{"content":"padding padding padding padding padding padding padding padding"}}\n' >> "$tp"
+  i=$((i + 1))
+done
+printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_S1","name":"SendMessage","input":{"to":"F","summary":"one more thing","message":"carry on"}}]}}\n' >> "$tp"
+touch "$sub/agent-F.jsonl"
+out=$(printf '%s' "$payload" | CLAUDE_SUB_TAIL=4000 sh "$SCRIPT")
+assert_contains "resumed: a SendMessage after the marker brings it back" "$out" "+{F5.1h}"
+# The second stop: same toolUseId, new notification, later than the resume.
+printf '{"type":"user","message":{"content":"<task-notification>\\n<task-id>F</task-id>\\n<tool-use-id>toolu_F</tool-use-id>\\n<status>completed</status>\\n</task-notification>"}}\n' >> "$tp"
+# A message to something that is not one of our agents changes nothing.
+printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_S2","name":"SendMessage","input":{"to":"reviewer","message":"ping"}}]}}\n' >> "$tp"
+out=$(printf '%s' "$payload" | CLAUDE_SUB_TAIL=4000 sh "$SCRIPT")
+assert_not_contains "resumed: the second stop retires it again"        "$out" "F5.1"
+assert_not_contains "resumed: a message to a stranger revives nothing" "$out" "+{"
+
 # A session that never spawned anything renders no chip at all.
 session="statusline-test-no-subagents"
 tp="$proj/$session.jsonl"

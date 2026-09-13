@@ -382,14 +382,22 @@ end of a 7.6 MB transcript.
 Raising `CLAUDE_SUB_TAIL` is not the fix — *any* fixed window is outrun by a long
 enough session, and a bigger one costs I/O on every render of every session. What
 makes remembering safe is that markers are **monotonic**: an agent that returned
-does not un-return. (The one exception is the resumed agent below, which was
-already counted as done before any of this.)
+does not un-return. The one thing that brings it back is a resume.
 
-**Known limit.** An async agent *resumed* with `SendMessage` after it already
-notified once counts as done — its original `toolUseId` keeps the marker it
-earned at the first stop. Undoing that needs the marker's timestamp compared
-against the agent file's, which is a date parse per render for one missing entry
-in a chip that is an approximation by design.
+**A resumed agent is live again.** `SendMessage` to an async agent that has
+already notified restarts it under the same `agentId` and the same `toolUseId`,
+so the marker it earned at its first stop — remembered as above — would keep it
+out of the chip for the rest of the session while it works. Seen on 13 Sep 2026:
+one agent resumed seven times over three hours, the chip reading `+{O5h}` while
+Claude Code's own list under the bar showed two agents. The resume is visible in
+the parent transcript as the assistant's `tool_use` block,
+`"name":"SendMessage","input":{"to":"<agentId>"`, and the second stop is another
+task-notification carrying the same `<tool-use-id>`. So the scan records the
+line number of the *last* marker and the *last* resume per agent: a resume after
+the marker means running, a marker after the resume means done, and the
+remembered id only decides when the scanned window holds neither. That ordering
+is what keeps the cache honest — a resume always precedes the stop it leads to,
+so a stop that has scrolled out of the window took its resume with it.
 
 **Cost.** Model and effort never change for a given agent, so they are resolved
 once and cached in `/tmp/claude-statusline-agents-v1-<sid>.txt` for the rest of
@@ -3188,14 +3196,21 @@ fi
 # threshold — any fixed window is outrun by a long enough session — so the answer
 # is to write the id down the first time it is seen and never re-derive it.
 # Markers are monotonic, which is what makes this safe to cache: an agent that
-# returned does not un-return. The one exception is the resumed agent below, and
-# that case was already counted as done before any of this.
+# returned does not un-return. The one thing that brings it back is a RESUME.
 #
-# KNOWN LIMIT: an async agent RESUMED with SendMessage after it already notified
-# once counts as done, because its original toolUseId keeps the marker it earned
-# at the first stop. Undoing that needs the marker's timestamp compared against
-# the agent file's — a date parse per render, for one missing entry in a chip
-# that is an approximation by design.
+# A RESUMED AGENT IS LIVE AGAIN. SendMessage to an async agent that has already
+# notified restarts it under the same agentId and the same toolUseId, so its
+# original marker — remembered above — would keep it out of the chip for the
+# rest of the session while it works. Seen 13 Sep 2026: one agent resumed seven
+# times over three hours, the chip showing one agent while the native list under
+# the bar showed two. The resume is visible in the parent transcript as the
+# assistant's tool_use block, `"name":"SendMessage","input":{"to":"<agentId>"`,
+# and the second stop is another notification with the same <tool-use-id>. So
+# the scan records the line of the LAST marker and the LAST resume per agent;
+# a resume after the marker means running, a marker after the resume means done,
+# and the remembered id only decides when the window holds neither. That order
+# is safe: a resume always precedes the stop it leads to, so a stop that has
+# scrolled out took its resume with it.
 SUB_STALE="${CLAUDE_SUB_STALE:-900}"   # s of silence before an agent counts as a corpse
 SUB_TAIL="${CLAUDE_SUB_TAIL:-2000000}" # bytes of parent transcript scanned for done-markers
 sub_render=""
@@ -3249,10 +3264,10 @@ EOF
         n = split(ENVIRON["_meta"], rows, "\n")
         for (i = 1; i <= n; i++) {
           split(rows[i], f, " ")
-          if (f[2] != "") { live[f[2]] = f[1]; alias[f[1]] = f[3] }
+          if (f[2] != "") { live[f[2]] = f[1]; alias[f[1]] = f[3]; tid[f[1]] = f[2] }
         }
         n = split(ENVIRON["_done"], d, "\n")
-        for (i = 1; i <= n; i++) if (d[i] != "" && (d[i] in live)) delete live[d[i]]
+        for (i = 1; i <= n; i++) if (d[i] != "" && (d[i] in live)) cached[d[i]] = 1
       }
       {
         n = split($0, parts, /"tool_use_id":"/)
@@ -3260,18 +3275,31 @@ EOF
           p = parts[i]; q = index(p, "\""); if (q < 2) continue
           id = substr(p, 1, q - 1)
           # A launch receipt is not a return value.
-          if ((id in live) && index(p, "Async agent launched successfully") == 0) { fresh[id] = 1; delete live[id] }
+          if ((id in live) && index(p, "Async agent launched successfully") == 0) mark[id] = NR
         }
         n = split($0, g, /<tool-use-id>/)
         for (i = 2; i <= n; i++) {
           q = index(g[i], "<"); if (q < 2) continue
           id = substr(g[i], 1, q - 1)
-          if (id in live) { fresh[id] = 1; delete live[id] }
+          if (id in live) mark[id] = NR
+        }
+        # A resume: a SendMessage addressed to the agent id restarts it.
+        n = split($0, s, /"name":"SendMessage","input":/)
+        for (i = 2; i <= n; i++) {
+          if (!match(s[i], /"to":"[^"]*"/)) continue
+          a = substr(s[i], RSTART + 6, RLENGTH - 7)
+          if (a in tid) resume[tid[a]] = NR
         }
       }
       END {
-        for (t in fresh) print "D " t
-        for (t in live)  print "R " live[t] " " alias[live[t]]
+        for (t in live) {
+          m = (t in mark)   ? mark[t]   : 0
+          r = (t in resume) ? resume[t] : 0
+          if (r > m)        { print "R " live[t] " " alias[live[t]]; continue }
+          if (m > 0)        { if (!(t in cached)) print "D " t; continue }
+          if (t in cached)  continue
+          print "R " live[t] " " alias[live[t]]
+        }
       }')
     _running=$(printf '%s\n' "$_scan" | sed -n 's/^R //p')
     # Append rather than rewrite: an id is only ever reported once (the next
