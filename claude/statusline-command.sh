@@ -1160,11 +1160,11 @@ if [ -n "$spend_seg" ] && [ "$(printf '%.2f' "$cost")" != "0.00" ]; then
   out="$out${_five_sep:- | }$spend_seg"
 fi
 
-# --- Weekly quota, last cell of the bar: "(+6)27% / 1wd1h"
+# --- Weekly quota, last cell of the bar: "+6=27% / 1wd1h"
 # The 5h segment answers "can I keep going right now"; this one answers the
 # slower question — am I going to run out of week before the week runs out.
 # Three numbers, in the order you actually ask them:
-#   (+6)  pace, in percentage POINTS off a straight line: elapsed% − used%.
+#   +6=   pace, in percentage POINTS off a straight line: elapsed% − used%.
 #         Positive = consumed less than the clock, i.e. points of slack in hand;
 #         negative = burning ahead of the week. Points, not a ratio, because
 #         over a whole week the linear budget is the mental model people
@@ -1265,19 +1265,19 @@ if [ -n "$week" ]; then
       # ON PACE PRINTS NOTHING. "0" and awk's "-0" (a pace between -0.5 and 0)
       # both mean the same thing -- you are where a straight line says you
       # should be -- and that is the DEFAULT state of the window, the one the
-      # bar is in most of the time. A "(0)" spent four columns, in the one cell
+      # bar is in most of the time. A "+0=" spent three columns, in the one cell
       # that already carries three readings, to announce that there was nothing
-      # to announce; worse, it drew a bracketed figure exactly like the "(-12)"
-      # that IS worth a glance, so the eye had to read it before it could
+      # to announce; worse, it drew a signed figure shaped exactly like the
+      # "-12=" that IS worth a glance, so the eye had to read it before it could
       # discard it. Absence says "on pace" faster than any glyph can, and the
       # "% left" beside it is never ambiguous on its own. The pace reappears the
       # moment it is a full point off in either direction, which is the only
       # time it changes what you do.
       case "$delta" in
         0|-0) wtxt=""; wcol="" ;;
-        -*) wtxt="(-${delta#-})"
+        -*) wtxt="-${delta#-}"
             if [ "${delta#-}" -ge 10 ]; then wcol="$RED"; else wcol="$ORANGE"; fi ;;
-        *)  wtxt="(+${delta})"; wcol="$GREEN" ;;
+        *)  wtxt="+${delta}"; wcol="$GREEN" ;;
       esac
       if [ -n "$wcol" ]; then
         wpace="${wcol}${wtxt}${RESET}"
@@ -1288,18 +1288,23 @@ if [ -n "$week" ]; then
   fi
   # Pace LEADS the absolute figure, same reasoning as the 5h arrow: the signed
   # number is the "am I OK?" glance, the "% left" is the detail you read second.
-  # It is PARENTHESISED and GLUED to it -- "(+6)27%" -- rather than separated by
-  # a spaced "⊂". Both forms said the pace belongs to the figure beside it, but
-  # "⊂" said it across two spaces, which is exactly what a separator does: it
-  # made two readings out of what the eye should take as one. Brackets bind
-  # tighter than any spaced sign can, and they are the same move the spend cell
-  # makes with "$5.2(2.7⏱)" -- a qualifier riding on the figure it qualifies,
-  # not a second cell. The pair also gets narrower, in the one cell that already
-  # carries three readings. The "/" before the duration stays -- the time left
-  # really IS a separate reading of the window, which is what "/" means
+  # The two are JOINED BY "=" and left unspaced -- "+6=27%" -- rather than
+  # bracketed ("(+6)27%") or separated by a spaced "⊂". All three forms said the
+  # pace belongs to the figure beside it; they differ in what they cost and in
+  # what else they look like. "⊂" said it across two spaces, which is exactly
+  # what a separator does: it made two readings out of what the eye should take
+  # as one. Brackets bound tightly enough, but they spent two columns on
+  # punctuation that carries no reading of its own, and in a bar that already
+  # uses "(...)" for the spend cell's rider ("$5.2(2.7⏱)") they claimed one
+  # shape for two different relationships -- there the brackets hold a SECOND
+  # quantity riding on the figure before them, here they held the FIRST. "="
+  # spends one column, keeps the pair unspaced so it still reads as one token,
+  # and means the right thing on its own: two sides of the same window, "6
+  # points of slack, hence 27% left". The "/" before the duration stays -- the
+  # time left really IS a separate reading of the window, which is what "/" means
   # everywhere else in this bar ("96% / 4h44").
   if [ -n "$wpace" ]; then
-    week_seg="${wpace}${wleft_str}"
+    week_seg="${wpace}=${wleft_str}"
   else
     week_seg="$wleft_str"
   fi

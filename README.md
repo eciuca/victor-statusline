@@ -11,7 +11,7 @@ explains not just *what* every glyph means but *why* it was designed that way,
 which is the part worth stealing.
 
 ```
-Opus 4.8/xhigh 50K/1M | ↗98% left / 4:47 | ✻0.5 ⊂ $25 | +24% = 70% / 1d1h
+Opus 5xh 50K ↗88% / 3h19 ✻0.5 ⊂ $25 victor-statusline@fix-cache +19=70% / 2wd13h
 🤖 opus-4.8 · high · 55K/1M | 6759 AIC (96%)↗ left | resets in 7d 4h
 ```
 

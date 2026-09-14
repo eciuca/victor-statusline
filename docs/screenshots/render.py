@@ -137,12 +137,12 @@ SPECS = [
              "<code>3:19</code> would be ambiguous. <code>/</code> is the only separator "
              "left inside the chip; the chip's edge is what ends the cell."),
         ] + CLAUDE_SPEND + CLAUDE_LOC + [
-            (r"\([+-]?\d+\)", "week",
+            (r"[+-]\d+(?==)", "week",
              "weekly pace, in <b>percentage points</b> off a straight line "
              "(<code>elapsed% − used%</code>). Positive means you are ahead of schedule. "
-             "Bracketed and glued to the figure it qualifies rather than given a cell of "
-             "its own."),
-            (r"(?<=\))\d+%", "week",
+             "Welded to the figure it qualifies with an <code>=</code> rather than given "
+             "a cell of its own — two sides of one window, not two cells."),
+            (r"(?<==)\d+%", "week",
              "quota left in the rolling <b>7-day</b> window, same thresholds as the 5h "
              "figure."),
             # The `wd` half is optional: the field drops units it does not need,

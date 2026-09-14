@@ -35,34 +35,34 @@ blooms `·` → `✢` → `✳` → `✻` → `✽` and closes again, one frame 
 same spinner Claude Code draws in front of "Working…"):
 
 ```
-Opus 5xh 50K ↗98% / 4h47 ✻0.5 ⊂ $25 ai | (+24)70% / 1d1h
+Opus 5xh 50K ↗98% / 4h47 ✻0.5 ⊂ $25 ai | +24=70% / 1d1h
 ```
 
 Idle, waiting on you (note the ticking "-N" clock and no flower):
 
 ```
-Opus 5xh 50K 98% / 4h47 $0.1 -3m ⊂ $25 ai | (+24)70% / 1d1h
+Opus 5xh 50K 98% / 4h47 $0.1 -3m ⊂ $25 ai | +24=70% / 1d1h
 ```
 
 Just after you hit Enter, before the first response has billed anything — **no
 turn price at all**, only the animated flower:
 
 ```
-Opus 5xh 50K | 98% / 4h47 | ✻ ⊂ $25 | ai | (+24)70% / 1d1h
+Opus 5xh 50K | 98% / 4h47 | ✻ ⊂ $25 | ai | +24=70% / 1d1h
 ```
 
 Idle long enough that the prompt cache is gone. The loss is priced either way;
 what changes with the amount is whether it moves. Below $2 it just sits there:
 
 ```
-Opus 5h 170K | ↑87% / 1h41 | $7.8 (>1h⇒miss+=$1.6) ⊂ $10 | ai | (+15)82% / 3wd8h
+Opus 5h 170K | ↑87% / 1h41 | $7.8 (>1h⇒miss+=$1.6) ⊂ $10 | ai | +15=82% / 3wd8h
 ```
 
 Above $2, `220K`, `>1h` and `$2.1` **blink red** in unison, one second on, one
 second off (§1.1); everything else holds still:
 
 ```
-Opus 5h 220K | ↑87% / 1h42 | $1.5 (>1h⇒miss+=$2.1) ⊂ $23 | ai | (+15)82% / 3wd8h
+Opus 5h 220K | ↑87% / 1h42 | $1.5 (>1h⇒miss+=$2.1) ⊂ $23 | ai | +15=82% / 3wd8h
 ```
 
 Five-hour quota nearly exhausted and confirmed by the account: `quota-gate.sh`
@@ -70,7 +70,7 @@ has parked this terminal. The arrow is the next live check; the duration is
 time until the window resets:
 
 ```
-Opus 5h 3%💤 → 21:15 / 4h51 | ai | (+15)82% / 3wd8h
+Opus 5h 3%💤 → 21:15 / 4h51 | ai | +15=82% / 3wd8h
 ```
 
 The same gate also parks at **1% or less weekly quota**, but marks the weekly
@@ -78,7 +78,7 @@ cell instead. Its wake clock is the next five-minute live quota probe, not a
 blind multi-day sleep to the cached reset:
 
 ```
-Opus 5h 60% / 3h22 ai (-6)0%💤 → Fri 17:08 / 7h
+Opus 5h 60% / 3h22 ai -6=0%💤 → Fri 17:08 / 7h
 ```
 
 Five segments: **model/effort/context**, **5h quota + burn-rate**, **spend**,
@@ -96,7 +96,7 @@ as soon as you have what you came for — and the most static segment is the one
 that falls off the right edge first on a narrow terminal.
 
 **`|` separates *unpainted* segments; `/` joins readings of the *same* window**
-— the 5h pair `↗98% / 4h47`, and the weekly triple `(+24)70% / 1d1h` (pace, then
+— the 5h pair `↗98% / 4h47`, and the weekly triple `+24=70% / 1d1h` (pace, then
 what's left, then how long the window has to run). It also buys back a couple of
 columns per join versus a wordier separator. The pipe is there because two runs
 of plain text a space apart read as one run; where a segment is painted, it has
@@ -304,7 +304,7 @@ parameter expansion, not `sed`: `$ctx_render` is full of ESC and `&` bytes that
 Glued onto the model segment while subagents are running, and absent otherwise:
 
 ```
-Opus 5h 60K +{O5h*2,S5m} | ↓48% / 4h44 | $0.3 -2m ⊂ $1.1 | victor-statusline | (-1)-1% / 0m
+Opus 5h 60K +{O5h*2,S5m} | ↓48% / 4h44 | $0.3 -2m ⊂ $1.1 | victor-statusline | -1=-1% / 0m
 ```
 
 Two Opus-5 agents at high effort plus one Sonnet-5 at medium. Each entry is
@@ -784,7 +784,7 @@ just-hit-Enter window deliberately shows nothing instead.
 ## 3.1 Prompt-cache miss — the red `(2.7⏱)` on the turn price
 
 ```
-Opus 5xh 200K | 98% / 4h47 | $5.2(2.7⏱) ⊂ $34 | ai | (+24)70% / 1d1h
+Opus 5xh 200K | 98% / 4h47 | $5.2(2.7⏱) ⊂ $34 | ai | +24=70% / 1d1h
 ```
 
 A red `(2.7⏱)` glued to the turn price means **this turn did not reuse the cached
@@ -1004,7 +1004,7 @@ post-mortem** ("you just did").
 
 ---
 
-## 4. Weekly quota — `(+24)70% / 1d1h`
+## 4. Weekly quota — `+24=70% / 1d1h`
 
 The **last** segment, tracking the rolling **7-day** (604800s) rate-limit window.
 Segment 2 answers *"can I keep going right now"*; this one answers the slower
@@ -1016,30 +1016,35 @@ Three readings of the one window, in the order you ask them: the **pace**, then
 **what's left**, then **how long the window has to run**. The last join is a `/`,
 the same separator the 5h pair uses (`98% / 4h47`) and meaning the same
 thing here — one window, several readings. The first two are not joined at all:
-the pace is **bracketed and glued** to the figure it qualifies, see below.
+the pace is **joined to it by an `=`**, with no spaces, see below.
 
 | Piece | Meaning | Source |
 |-------|---------|--------|
-| `(+24)` | pace: **percentage points** off a straight line, `elapsed% − used%`; bracketed and glued to the figure it qualifies; **absent when it is 0** (see below) | derived |
+| `+24=` | pace: **percentage points** off a straight line, `elapsed% − used%`; joined by `=` to the figure it qualifies, unspaced; **absent when it is 0** (see below) | derived |
 | `70%` | quota remaining this week = `100 − used%` | `.rate_limits.seven_day.used_percentage` |
 | `1d1h` | **working** time until the weekly window resets (weekends excluded) | `.rate_limits.seven_day.resets_at` |
 
 Pace **leads** the absolute figure, mirroring the 5h arrow: the signed number is
 the "am I OK?" glance, the `% left` is the detail you read second.
 
-There is **no separator** between them: the pace is **bracketed and glued** on,
-`(+6)27%`, the same move [the spend cell](#3-spend--05--25) makes with
-`$5.2(2.7⏱)` — a qualifier riding on the figure it qualifies rather than a cell
-of its own. `+6% 27%`, two bare percentages jammed together, was never an option:
+There is **no space** between them: the pace is welded on with an `=`,
+`+6=27%`. `+6% 27%`, two bare percentages jammed together, was never an option:
 nothing signals they are different quantities, so the eye tries to relate them
-and stalls. A `/` (an early rule, with an `=` before that) at least separated
-them, but put them on equal footing. A spaced **`⊂`** (the rule this replaced)
-got the *relation* right — the pace is a slice of what's left, six of the
-twenty-seven points still in the window are slack you are ahead by — yet it
-still said so across two spaces, and a separator, whatever it means, makes two
-readings out of what the eye should take as one. Brackets bind tighter than any
-spaced sign can, and the pair gets narrower in the one cell already carrying
-three readings.
+and stalls. A bare `/` at least separated them, but put them on equal footing. A
+spaced **`⊂`** got the *relation* right — the pace is a slice of what's left,
+six of the twenty-seven points still in the window are slack you are ahead by —
+yet it said so across two spaces, and a separator, whatever it means, makes two
+readings out of what the eye should take as one.
+
+Brackets — `(+6)27%`, the rule this replaced — bound tightly enough. What they
+cost was two columns of punctuation carrying no reading of its own, in the one
+cell already holding three readings, and a collision of meaning: the bar already
+uses `(...)` for [the spend cell's](#3-spend--05--25) rider, `$5.2(2.7⏱)`, where
+the brackets hold a **second** quantity riding on the figure before them. Here
+they held the **first**, so one shape stood for two different relationships. The
+`=` spends one column, keeps the pair unspaced so it still reads as one token,
+and already means what is going on: two sides of the same window, "six points of
+slack, hence 27% left".
 
 The pace also **drops its own `%`**: it is glued to a figure that already carries
 the unit, and both are percentage points of the same window, so one `%` serves
@@ -1080,17 +1085,17 @@ time, returning *both* the working seconds left and the pace.
 
 | pace | meaning | color |
 |------|---------|-------|
-| `+N%` | consumed **less** than the working week — `N` points of slack in hand | green |
+| `+N=` | consumed **less** than the working week — `N` points of slack in hand | green |
 | *(nothing)* | dead on the linear budget — the pace is **not printed at all** | — |
-| `-N%` (N < 10) | running **ahead** of the working week | orange |
-| `-N%` (N ≥ 10) | badly ahead — this week ends early | red |
+| `-N=` (N < 10) | running **ahead** of the working week | orange |
+| `-N=` (N ≥ 10) | badly ahead — this week ends early | red |
 
 **On pace prints nothing.** `0` and awk's `-0` (any pace between −0.5 and 0)
 both mean *you are exactly where a straight line says you should be* — and that
 is the window's **default** state, the one the bar is in most of the time. The
-old rule spent four columns, in the cell that already carries three readings, to
-announce that there was nothing to announce; worse, `(0)` drew a bracketed figure
-shaped exactly like the `(-12)` that *does* deserve a glance, so the eye had to
+old rule spent the columns, in the cell that already carries three readings, to
+announce that there was nothing to announce; worse, `+0=` drew a signed figure
+shaped exactly like the `-12=` that *does* deserve a glance, so the eye had to
 read it before it could throw it away. Absence says "on pace" faster than any
 glyph can, and `94%` standing on its own is never ambiguous. The pace comes back
 the moment it is a full point off in either direction — the only time it changes
@@ -1193,7 +1198,7 @@ cells, which would otherwise run together; a chipped cell is never plain text �
 the chip's own edges are a harder boundary than a pipe ever was. Carrying both
 made the eye cross four separators (pipe, chip edge, chip edge, pipe) to read
 one word. A single space on each side is all the air the chip needs, so the
-segment now reads `⊂ $3.0 victor-skills (-16)25%`. The pipe returns only when
+segment now reads `⊂ $3.0 victor-skills -16=25%`. The pipe returns only when
 there is no location at all, since then the neighbours really are two runs of
 plain text. This was the first cell to drop its pipes on that argument; the 5h
 quota (§2) followed, and the two of them together are the bar's zebra.
@@ -1512,7 +1517,7 @@ that every status line writes (~1×/sec) and reads back, for **both** windows:
   so it won the merge on every render. Neither rule above can express *the
   allowance grew* (value order only walks `used` up; the stale hatch needs a
   fresh reading, and the frozen terminals had none), so the bar read
-  `(-3)6% / 10h` for hours and would have until the window reset. Hence
+  `-3=6% / 10h` for hours and would have until the window reset. Hence
   `~/.claude/hooks/quota-probe.sh`: every `CLAUDE_QUOTA_PROBE_SECS` (300 s;
   `CLAUDE_WEEKLY_QUOTA_PROBE_SECS` is an alias) some status-line render kicks
   it in the background — one `stat(2)` of its stamp per render, a `mkdir` lock
@@ -2779,11 +2784,11 @@ if [ -n "$spend_seg" ] && [ "$(printf '%.2f' "$cost")" != "0.00" ]; then
   out="$out${_five_sep:- | }$spend_seg"
 fi
 
-# --- Weekly quota, last cell of the bar: "(+6)27% / 1wd1h"
+# --- Weekly quota, last cell of the bar: "+6=27% / 1wd1h"
 # The 5h segment answers "can I keep going right now"; this one answers the
 # slower question — am I going to run out of week before the week runs out.
 # Three numbers, in the order you actually ask them:
-#   (+6)  pace, in percentage POINTS off a straight line: elapsed% − used%.
+#   +6=   pace, in percentage POINTS off a straight line: elapsed% − used%.
 #         Positive = consumed less than the clock, i.e. points of slack in hand;
 #         negative = burning ahead of the week. Points, not a ratio, because
 #         over a whole week the linear budget is the mental model people
@@ -2884,19 +2889,19 @@ if [ -n "$week" ]; then
       # ON PACE PRINTS NOTHING. "0" and awk's "-0" (a pace between -0.5 and 0)
       # both mean the same thing -- you are where a straight line says you
       # should be -- and that is the DEFAULT state of the window, the one the
-      # bar is in most of the time. A "(0)" spent four columns, in the one cell
+      # bar is in most of the time. A "+0=" spent three columns, in the one cell
       # that already carries three readings, to announce that there was nothing
-      # to announce; worse, it drew a bracketed figure exactly like the "(-12)"
-      # that IS worth a glance, so the eye had to read it before it could
+      # to announce; worse, it drew a signed figure shaped exactly like the
+      # "-12=" that IS worth a glance, so the eye had to read it before it could
       # discard it. Absence says "on pace" faster than any glyph can, and the
       # "% left" beside it is never ambiguous on its own. The pace reappears the
       # moment it is a full point off in either direction, which is the only
       # time it changes what you do.
       case "$delta" in
         0|-0) wtxt=""; wcol="" ;;
-        -*) wtxt="(-${delta#-})"
+        -*) wtxt="-${delta#-}"
             if [ "${delta#-}" -ge 10 ]; then wcol="$RED"; else wcol="$ORANGE"; fi ;;
-        *)  wtxt="(+${delta})"; wcol="$GREEN" ;;
+        *)  wtxt="+${delta}"; wcol="$GREEN" ;;
       esac
       if [ -n "$wcol" ]; then
         wpace="${wcol}${wtxt}${RESET}"
@@ -2907,18 +2912,23 @@ if [ -n "$week" ]; then
   fi
   # Pace LEADS the absolute figure, same reasoning as the 5h arrow: the signed
   # number is the "am I OK?" glance, the "% left" is the detail you read second.
-  # It is PARENTHESISED and GLUED to it -- "(+6)27%" -- rather than separated by
-  # a spaced "⊂". Both forms said the pace belongs to the figure beside it, but
-  # "⊂" said it across two spaces, which is exactly what a separator does: it
-  # made two readings out of what the eye should take as one. Brackets bind
-  # tighter than any spaced sign can, and they are the same move the spend cell
-  # makes with "$5.2(2.7⏱)" -- a qualifier riding on the figure it qualifies,
-  # not a second cell. The pair also gets narrower, in the one cell that already
-  # carries three readings. The "/" before the duration stays -- the time left
-  # really IS a separate reading of the window, which is what "/" means
+  # The two are JOINED BY "=" and left unspaced -- "+6=27%" -- rather than
+  # bracketed ("(+6)27%") or separated by a spaced "⊂". All three forms said the
+  # pace belongs to the figure beside it; they differ in what they cost and in
+  # what else they look like. "⊂" said it across two spaces, which is exactly
+  # what a separator does: it made two readings out of what the eye should take
+  # as one. Brackets bound tightly enough, but they spent two columns on
+  # punctuation that carries no reading of its own, and in a bar that already
+  # uses "(...)" for the spend cell's rider ("$5.2(2.7⏱)") they claimed one
+  # shape for two different relationships -- there the brackets hold a SECOND
+  # quantity riding on the figure before them, here they held the FIRST. "="
+  # spends one column, keeps the pair unspaced so it still reads as one token,
+  # and means the right thing on its own: two sides of the same window, "6
+  # points of slack, hence 27% left". The "/" before the duration stays -- the
+  # time left really IS a separate reading of the window, which is what "/" means
   # everywhere else in this bar ("96% / 4h44").
   if [ -n "$wpace" ]; then
-    week_seg="${wpace}${wleft_str}"
+    week_seg="${wpace}=${wleft_str}"
   else
     week_seg="$wleft_str"
   fi
