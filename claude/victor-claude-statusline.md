@@ -328,7 +328,7 @@ says "the bulk of this is Fable, with three Opus stragglers" in twelve columns.
 
 | File | Carries |
 |------|---------|
-| `agent-<id>.meta.json` | `toolUseId`, `agentType`, the *requested* model alias |
+| `agent-<id>.meta.json` | `toolUseId` *or* `name`, `agentType`, the *requested* model alias |
 | `agent-<id>.jsonl` | the agent's own transcript: `message.model` and `effort` |
 
 The alias in the meta file (`"model":"opus"`) is a stand-in used only for the
@@ -353,6 +353,8 @@ transcript rather than in file mtimes:
   `tool_result`;
 - an **async** agent is done when a task-notification carries its id in a
   `<tool-use-id>` block;
+- either one is *also* done when a notification names it in a `<task-id>` block,
+  which is the same stop seen through its other id;
 - the one `tool_result` that does **not** mean done is the *"Async agent
   launched successfully"* receipt, which lands at spawn time.
 
@@ -362,6 +364,29 @@ user turn can batch a synchronous result and an async launch together, and
 skipping the line would lose the real result sitting next to the receipt. The
 `tool_use` block that *starts* an agent carries the same id under `"id"`, never
 `"tool_use_id"`, so a spawn can never read as a completion.
+
+**A forked skill has no `toolUseId` at all.** A slash-command run in the
+background — `/code-review` answering as `@code-review-2` under the bar — is an
+agent like any other and writes the same two files, but its meta file carries a
+`name` and no `toolUseId` whatsoever:
+
+```json
+{"agentType":"general-purpose","description":"/code-review origin/main",
+ "name":"code-review-2","spawnDepth":1,"requestShape":"background"}
+```
+
+Keying the scan on that one field dropped such an agent before it was ever
+counted, and the chip stayed blank through an hour-long review while the native
+list showed the agent working (15 Sep 2026 — the third time this segment has
+been wrong about *who is running* rather than about *what they are running on*).
+So the key is the `toolUseId` when there is one and the `agentId` when there is
+not: all the scan needs is the string the parent transcript will use when this
+agent stops. For a forked skill that string is the `<task-id>` of its
+notification — its `<tool-use-id>` belongs to the `Skill` call that launched it,
+not to the agent — and the `@name` is a second handle a resume may arrive under.
+The `<task-id>` rule is applied to every agent, not only these ones: an ordinary
+async agent's notification carries both ids, so the extra rule costs nothing and
+gives that stop an independent witness.
 
 The mtime filter (`CLAUDE_SUB_STALE`, 900s) is only a floor against corpses: an
 agent killed with Esc, or orphaned by a crash, may never get a marker, and with
@@ -391,8 +416,9 @@ out of the chip for the rest of the session while it works. Seen on 13 Sep 2026:
 one agent resumed seven times over three hours, the chip reading `+{O5h}` while
 Claude Code's own list under the bar showed two agents. The resume is visible in
 the parent transcript as the assistant's `tool_use` block,
-`"name":"SendMessage","input":{"to":"<agentId>"`, and the second stop is another
-task-notification carrying the same `<tool-use-id>`. So the scan records the
+`"name":"SendMessage","input":{"to":"<agentId>"` — or `"to":"code-review-2"`,
+since a forked skill answers to its name — and the second stop is another
+task-notification carrying the same ids. So the scan records the
 line number of the *last* marker and the *last* resume per agent: a resume after
 the marker means running, a marker after the resume means done, and the
 remembered id only decides when the scanned window holds neither. That ordering
@@ -3162,6 +3188,19 @@ fi
 # which lands at spawn time — so the scan splits each line on the id delimiter
 # and discounts that chunk alone, rather than skipping the whole line: one user
 # turn can batch a sync result and an async launch together.
+#
+# A FORKED SKILL HAS NO toolUseId. A slash-command run in the background —
+# "Skill \"code-review\" launched (forked execution)", listed under the bar as
+# @code-review-2 — is an agent like any other and writes the same two files, but
+# its meta.json carries a `name` and no `toolUseId` whatsoever. Keying the scan
+# on that one field dropped such an agent before it was ever counted, and the
+# chip stayed blank through an hour-long review (seen 15 Sep 2026). So an agent
+# without a toolUseId is keyed on its own agentId instead, and retired on the
+# <task-id> of its notification rather than the <tool-use-id>; a resume is a
+# SendMessage addressed to either its id or its name. The <task-id> rule is
+# applied to EVERY agent, not only these: an ordinary async agent's notification
+# carries both ids, so it costs nothing and gives that stop a second, independent
+# witness.
 # The mtime filter is only a floor against corpses — an agent killed with Esc, or
 # orphaned by a crash, may never get a marker, and with no cutoff it would sit in
 # the chip forever.
@@ -3215,11 +3254,16 @@ $_stat
 EOF
   _meta=""
   if [ -n "$_fresh" ]; then
-    # id -> toolUseId + the model ALIAS that was requested. The alias is a
-    # stand-in only: it says "opus", not which Opus, and it is missing entirely
-    # when the agent inherits. It carries the chip through the seconds between
-    # spawn and the agent's first completed response; after that the agent's own
-    # transcript says what it actually got, and the alias is never read again.
+    # id -> key + the model ALIAS that was requested + the agent's name. The
+    # alias is a stand-in only: it says "opus", not which Opus, and it is missing
+    # entirely when the agent inherits. It carries the chip through the seconds
+    # between spawn and the agent's first completed response; after that the
+    # agent's own transcript says what it actually got, and the alias is never
+    # read again. The key is the toolUseId when there is one and the agentId when
+    # there is not (a forked skill) — the scan below only needs it to be the
+    # string the parent transcript will name when this agent stops.
+    # "-" rather than an empty column: the reader splits on runs of blanks, so an
+    # absent model would otherwise shift the name left into its place.
     _meta=$(awk -v want="$_fresh" '
       BEGIN { n = split(want, a, ","); for (i = 1; i <= n; i++) if (a[i] != "") w[a[i]] = 1 }
       {
@@ -3228,7 +3272,9 @@ EOF
         seen[id] = 1
         t = ""; if (match($0, /"toolUseId":"[^"]*"/)) t = substr($0, RSTART + 13, RLENGTH - 14)
         m = ""; if (match($0, /"model":"[^"]*"/))     m = substr($0, RSTART + 9,  RLENGTH - 10)
-        if (t != "") print id " " t " " m
+        nm = ""; if (match($0, /"name":"[^"]*"/))     nm = substr($0, RSTART + 8, RLENGTH - 9)
+        if (t == "") t = id
+        print id " " t " " (m == "" ? "-" : m) " " (nm == "" ? "-" : nm)
       }' "$_sdir"/agent-*.meta.json 2>/dev/null)
   fi
   _running=""
@@ -3245,8 +3291,16 @@ EOF
       BEGIN {
         n = split(ENVIRON["_meta"], rows, "\n")
         for (i = 1; i <= n; i++) {
-          split(rows[i], f, " ")
-          if (f[2] != "") { live[f[2]] = f[1]; alias[f[1]] = f[3]; tid[f[1]] = f[2] }
+          if (split(rows[i], f, " ") < 4 || f[2] == "") continue
+          live[f[2]] = f[1]
+          alias[f[1]] = (f[3] == "-") ? "" : f[3]
+          # Every handle the parent transcript may use to name this agent,
+          # pointing at its key: its own agentId, which is how both a <task-id>
+          # and a SendMessage address it, and, for a forked skill, the name it
+          # answers to — @code-review-2.
+          aid[f[1]] = f[2]
+          ref[f[1]] = f[2]
+          if (f[4] != "-") ref[f[4]] = f[2]
         }
         n = split(ENVIRON["_done"], d, "\n")
         for (i = 1; i <= n; i++) if (d[i] != "" && (d[i] in live)) cached[d[i]] = 1
@@ -3265,12 +3319,20 @@ EOF
           id = substr(g[i], 1, q - 1)
           if (id in live) mark[id] = NR
         }
-        # A resume: a SendMessage addressed to the agent id restarts it.
+        # The same notification names the AGENT id too, which is the only handle
+        # a forked skill has — and a free second witness for everyone else.
+        n = split($0, k, /<task-id>/)
+        for (i = 2; i <= n; i++) {
+          q = index(k[i], "<"); if (q < 2) continue
+          a = substr(k[i], 1, q - 1)
+          if (a in aid) mark[aid[a]] = NR
+        }
+        # A resume: a SendMessage addressed to the agent — by id or by name.
         n = split($0, s, /"name":"SendMessage","input":/)
         for (i = 2; i <= n; i++) {
           if (!match(s[i], /"to":"[^"]*"/)) continue
           a = substr(s[i], RSTART + 6, RLENGTH - 7)
-          if (a in tid) resume[tid[a]] = NR
+          if (a in ref) resume[ref[a]] = NR
         }
       }
       END {

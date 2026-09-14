@@ -310,6 +310,59 @@ out=$(printf '%s' "$payload" | CLAUDE_SUB_TAIL=4000 sh "$SCRIPT")
 assert_not_contains "resumed: the second stop retires it again"        "$out" "F5.1"
 assert_not_contains "resumed: a message to a stranger revives nothing" "$out" "+{"
 
+# --- Case 9: a slash-command forked into the background ---------------------
+# /code-review run in the background is an agent like any other -- its own
+# transcript, its own line in the native list as @code-review-2 -- but its
+# meta.json carries a "name" and no "toolUseId" whatsoever. A scan keyed on that
+# one field dropped it before it was ever counted, and the chip stayed blank
+# through an hour-long review (15 Sep 2026). Such an agent is keyed on its own
+# agentId, retired on the <task-id> of its notification, and resumable by name.
+session="statusline-test-forked-skill"
+sub="$proj/$session/subagents"
+mkdir -p "$sub"
+tp="$proj/$session.jsonl"
+
+# id / @name / model / effort. No toolUseId and no model alias: exactly the
+# shape Claude Code writes for a forked skill.
+mk_forked() {
+  printf '{"agentType":"general-purpose","description":"/code-review main","name":"%s","spawnDepth":1,"requestShape":"background","requestNonInteractive":true}' \
+    "$2" > "$sub/agent-$1.meta.json"
+  printf '{"type":"user","isSidechain":true,"agentId":"%s","message":{"role":"user"}}\n{"type":"assistant","agentId":"%s","effort":"%s","message":{"role":"assistant","model":"%s"}}\n' \
+    "$1" "$1" "$4" "$3" > "$sub/agent-$1.jsonl"
+}
+mk_forked P code-review   claude-opus-5   high
+mk_forked Q code-review-2 claude-sonnet-5 medium
+{
+  # The launch receipt. It names the agent under "agentId", and its own
+  # tool_use_id belongs to the Skill call, not to the agent -- so it can never
+  # read as that agent stopping.
+  printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_P","content":"Skill launched (forked execution, running in the background).\\n\\nRunning in the background as @code-review"}]},"toolUseResult":{"status":"forked","background":true,"agentId":"P"}}\n'
+  printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_Q","content":"Skill launched (forked execution, running in the background).\\n\\nRunning in the background as @code-review-2"}]},"toolUseResult":{"status":"forked","background":true,"agentId":"Q"}}\n'
+} > "$tp"
+
+payload=$(cat <<JSON
+{"session_id":"$session","model":{"display_name":"Opus 5 (1M context)"},
+ "effort":{"level":"high"},"transcript_path":"$tp",
+ "context_window":{"used_percentage":6,"context_window_size":1000000},
+ "rate_limits":{"five_hour":{"used_percentage":40,"resets_at":$reset}}}
+JSON
+)
+out=$(printf '%s' "$payload" | sh "$SCRIPT")
+assert_contains "forked skill: an agent with no toolUseId is still counted" "$out" "+{O5h,S5m}"
+
+# P stops. Its notification carries the launch tool-use-id, which is NOT the key
+# here, and the agent id, which is -- so this retires it only via <task-id>.
+printf '{"type":"user","message":{"content":"<task-notification>\\n<task-id>P</task-id>\\n<tool-use-id>toolu_P</tool-use-id>\\n<status>killed</status>\\n</task-notification>"}}\n' >> "$tp"
+out=$(printf '%s' "$payload" | sh "$SCRIPT")
+assert_not_contains "forked skill: its notification retires it by task-id" "$out" "O5h"
+assert_contains     "forked skill: the one still working stays"            "$out" "+{S5m}"
+
+# Resumed the way Victor actually resumes one of these: by @name, not by id.
+printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_S3","name":"SendMessage","input":{"to":"code-review","message":"carry on"}}]}}\n' >> "$tp"
+touch "$sub/agent-P.jsonl"
+out=$(printf '%s' "$payload" | sh "$SCRIPT")
+assert_contains "forked skill: a SendMessage to its @name brings it back" "$out" "+{O5h,S5m}"
+
 # A session that never spawned anything renders no chip at all.
 session="statusline-test-no-subagents"
 tp="$proj/$session.jsonl"
