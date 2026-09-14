@@ -1262,11 +1262,19 @@ if [ -n "$week" ]; then
       # glyph has to. The "%" is NOT repeated on the pace — it is glued to a
       # figure that already carries the unit, and both are points of the same
       # window, so one "%" serves the pair.
-      # "-0" is awk's rounding of a pace between -0.5 and 0, and it reads as a
-      # broken number rather than as the "half a point behind, i.e. on pace"
-      # it means. It belongs in the same bucket as "+0": plain "(0)".
+      # ON PACE PRINTS NOTHING. "0" and awk's "-0" (a pace between -0.5 and 0)
+      # both mean the same thing -- you are where a straight line says you
+      # should be -- and that is the DEFAULT state of the window, the one the
+      # bar is in most of the time. A "(0)" spent four columns, in the one cell
+      # that already carries three readings, to announce that there was nothing
+      # to announce; worse, it drew a bracketed figure exactly like the "(-12)"
+      # that IS worth a glance, so the eye had to read it before it could
+      # discard it. Absence says "on pace" faster than any glyph can, and the
+      # "% left" beside it is never ambiguous on its own. The pace reappears the
+      # moment it is a full point off in either direction, which is the only
+      # time it changes what you do.
       case "$delta" in
-        0|-0) wtxt="(0)"; wcol="" ;;
+        0|-0) wtxt=""; wcol="" ;;
         -*) wtxt="(-${delta#-})"
             if [ "${delta#-}" -ge 10 ]; then wcol="$RED"; else wcol="$ORANGE"; fi ;;
         *)  wtxt="(+${delta})"; wcol="$GREEN" ;;

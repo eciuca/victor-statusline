@@ -1020,7 +1020,7 @@ the pace is **bracketed and glued** to the figure it qualifies, see below.
 
 | Piece | Meaning | Source |
 |-------|---------|--------|
-| `(+24)` | pace: **percentage points** off a straight line, `elapsed% − used%`; bracketed and glued to the figure it qualifies (see below) | derived |
+| `(+24)` | pace: **percentage points** off a straight line, `elapsed% − used%`; bracketed and glued to the figure it qualifies; **absent when it is 0** (see below) | derived |
 | `70%` | quota remaining this week = `100 − used%` | `.rate_limits.seven_day.used_percentage` |
 | `1d1h` | **working** time until the weekly window resets (weekends excluded) | `.rate_limits.seven_day.resets_at` |
 
@@ -1081,9 +1081,20 @@ time, returning *both* the working seconds left and the pace.
 | pace | meaning | color |
 |------|---------|-------|
 | `+N%` | consumed **less** than the working week — `N` points of slack in hand | green |
-| `0%` | dead on the linear budget | — |
+| *(nothing)* | dead on the linear budget — the pace is **not printed at all** | — |
 | `-N%` (N < 10) | running **ahead** of the working week | orange |
 | `-N%` (N ≥ 10) | badly ahead — this week ends early | red |
+
+**On pace prints nothing.** `0` and awk's `-0` (any pace between −0.5 and 0)
+both mean *you are exactly where a straight line says you should be* — and that
+is the window's **default** state, the one the bar is in most of the time. The
+old rule spent four columns, in the cell that already carries three readings, to
+announce that there was nothing to announce; worse, `(0)` drew a bracketed figure
+shaped exactly like the `(-12)` that *does* deserve a glance, so the eye had to
+read it before it could throw it away. Absence says "on pace" faster than any
+glyph can, and `94%` standing on its own is never ambiguous. The pace comes back
+the moment it is a full point off in either direction — the only time it changes
+what you do.
 
 Two decisions here, both about **reading speed**:
 
@@ -2870,11 +2881,19 @@ if [ -n "$week" ]; then
       # glyph has to. The "%" is NOT repeated on the pace — it is glued to a
       # figure that already carries the unit, and both are points of the same
       # window, so one "%" serves the pair.
-      # "-0" is awk's rounding of a pace between -0.5 and 0, and it reads as a
-      # broken number rather than as the "half a point behind, i.e. on pace"
-      # it means. It belongs in the same bucket as "+0": plain "(0)".
+      # ON PACE PRINTS NOTHING. "0" and awk's "-0" (a pace between -0.5 and 0)
+      # both mean the same thing -- you are where a straight line says you
+      # should be -- and that is the DEFAULT state of the window, the one the
+      # bar is in most of the time. A "(0)" spent four columns, in the one cell
+      # that already carries three readings, to announce that there was nothing
+      # to announce; worse, it drew a bracketed figure exactly like the "(-12)"
+      # that IS worth a glance, so the eye had to read it before it could
+      # discard it. Absence says "on pace" faster than any glyph can, and the
+      # "% left" beside it is never ambiguous on its own. The pace reappears the
+      # moment it is a full point off in either direction, which is the only
+      # time it changes what you do.
       case "$delta" in
-        0|-0) wtxt="(0)"; wcol="" ;;
+        0|-0) wtxt=""; wcol="" ;;
         -*) wtxt="(-${delta#-})"
             if [ "${delta#-}" -ge 10 ]; then wcol="$RED"; else wcol="$ORANGE"; fi ;;
         *)  wtxt="(+${delta})"; wcol="$GREEN" ;;
