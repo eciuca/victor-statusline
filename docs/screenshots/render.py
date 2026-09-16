@@ -17,6 +17,7 @@ import html
 import pathlib
 import re
 import sys
+import unicodedata
 
 HERE = pathlib.Path(__file__).resolve().parent
 LINES = HERE / "lines"
@@ -81,6 +82,12 @@ def parse_ansi(raw):
 # --- what each field means -------------------------------------------------
 # (regex, colour-group, explanation). The colour group ties a field to its
 # segment, so the eye can see at a glance which numbers belong together.
+# Card 1560 - card padding 2x40 - .term padding 2x22 - .term border 2x1.
+TERM_PX = 1434
+# SF Mono advances 0.6 em per cell; the fit below is a calculation, not a probe,
+# so it has to know that ratio.
+MONO_ADVANCE = 0.6
+
 GROUPS = {"model": "#7aa2f7", "5h": "#9ece6a", "spend": "#e0af68",
           "loc": "#bb9af7", "week": "#7dcfff"}
 
@@ -295,9 +302,10 @@ SPECS = [
     dict(
         src="copilot", out="copilot.png",
         title="GitHub Copilot CLI",
-        subtitle="Three segments: which brain and how full, what today has cost, and "
-                 "what is left of the month's AI Credits. Credit figures are a monthly "
-                 "balance, so they come from a background-refreshed cache rather than "
+        subtitle="Four segments: which brain and how full, what this session has "
+                 "cost, what today has cost, and what is left of the month's AI "
+                 "Credits. Only the session figure is live \u2014 the other two are a "
+                 "monthly balance, read from a background-refreshed cache rather than "
                  "from the payload.",
         fields=[
             (r"🤖 sonnet-5/med", "model",
@@ -307,14 +315,27 @@ SPECS = [
             (r"\d+K/\d+K \(\d+%\)", "model",
              "context tokens used / window size. The used count goes yellow ≥65% and red "
              "≥95%; the percentage is hidden when the window is a full 1M."),
+            (r"\$[\d.]+≈[\d.]+ AIC this session", "spend",
+             "what <b>this</b> session has burned — the same number Copilot prints in "
+             "its own footer as <code>Session: 41.60 AIC used</code>, which is where "
+             "this segment came from: the bar was quoting a lagging cache while the "
+             "app three lines above it had the live figure all along. It is the only "
+             "credit on the line that comes from the payload, so it is also the only "
+             "one that is never stale. One decimal below 100 credits, because a "
+             "session is a small number and <code>11</code> would not match the "
+             "<code>11.18</code> in the footer."),
             (r"\d+%[↑↗↘↓]?(?= \()", "5h",
              "share of <b>today's</b> budget already burned, where today's budget is "
              "simply the credits left divided by the working days left until the reset. "
              "The arrow compares that share against how much of the working day "
              "(09:00–18:00) has elapsed."),
-            (r"\(\$[\d.]+≈\d+/\d+ AIC\)", "5h",
+            (r"\(\$[\d.]+≈[\d.]+/\d+ AIC\)", "5h",
              "the same thing in absolutes: credits burned today out of today's slice, "
-             "each prefixed with its list price at 100 AIC to the dollar."),
+             "each prefixed with its list price at 100 AIC to the dollar. GitHub's "
+             "per-day billing endpoint lags the spend by minutes, so the session "
+             "figure to the left acts as a <b>floor</b> on this one — the line must "
+             "never read <code>0 AIC today</code> while announcing credits burned in "
+             "this very session."),
             (r"[+-]\d+%(?= =)", "week",
              "the <b>reserve</b>, in percentage points: how much of the month's "
              "entitlement is still there <i>beyond</i> what the calendar says should be "
@@ -347,8 +368,8 @@ h1 { font-size: 25px; margin: 0 0 6px; color: #f0f6fc; font-weight: 600; letter-
 .cap { font-size: 13.5px; line-height: 1.4; color: #6e7681; margin: 0 0 25px;
        font-family: -apple-system, sans-serif; }
 .cap b { color: #d7dde5; font-weight: 600; font-size: 14.5px; margin-right: 7px; }
-.line { font-family: "SF Mono", Menlo, monospace; font-size: 20px; line-height: 1.5;
-        white-space: pre; color: #c9d1d9; }
+.line { font-family: "SF Mono", Menlo, monospace; font-size: var(--lfs, 20px);
+        line-height: 1.5; white-space: pre; color: #c9d1d9; }
 .fld { position: relative; border-radius: 3px; padding: 3px 1px;
        background: color-mix(in srgb, var(--c) 20%, transparent);
        box-shadow: inset 0 -2px 0 0 var(--c); }
@@ -385,11 +406,14 @@ def build(spec):
     rows = spec.get("rows") or [{"src": spec["src"], "fields": spec["fields"]}]
     n = 0
     row_html, legend_items = [], []
+    widest = 0          # printable columns of the longest row, for the type size
 
     for row in rows:
         raw = (LINES / f"{row['src']}.ansi").read_text()
         cells = parse_ansi(raw)
         plain = "".join(c[0] for c in cells)
+        widest = max(widest, sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1
+                                 for ch in plain))
 
         # Locate every annotated field, then check the marks do not overlap: a
         # bad regex silently swallowing a neighbour is the one failure mode
@@ -450,10 +474,16 @@ def build(spec):
         f'<span class="k">{html.escape(txt)}</span> — {desc}</li>'
         for _, _, num, c, desc, txt in legend_items
     )
+    # The bar is set at 20px unless it would not fit, and then only as small as it
+    # has to be. A line that overflows the card is clipped by the PNG with no
+    # warning at all -- adding one segment to the Copilot bar silently cut the
+    # reset clock off the right edge -- and a clipped picture is exactly the
+    # stale-documentation failure the regex check exists to prevent.
+    fs = min(20.0, TERM_PX / (MONO_ADVANCE * max(1, widest)))
     note = f'<p class="note">{spec["note"]}</p>' if spec.get("note") else ""
     cols = ' style="columns:1"' if spec.get("one_column") else ""
     return f"""<!doctype html><meta charset="utf-8"><style>{CSS}</style>
-<div class="card">
+<div class="card" style="--lfs:{fs:.1f}px">
   <h1>{spec['title']}</h1>
   <p class="sub">{spec['subtitle']}</p>
   <div class="term">{''.join(row_html)}</div>

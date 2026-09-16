@@ -87,6 +87,14 @@ it — do not work around it. It had been failing silently on `\d+K/1M` (the Opu
 1M window stopped printing its denominator) and on `(miss=$…)`, which means the
 pictures had been stale through several bar changes before anyone re-ran it.
 
+The bar's type size is **computed to fit**, not fixed: `build()` measures the
+longest row in printable columns and shrinks `--lfs` below 20px only when the
+line would otherwise run past the card. Adding the Copilot session segment had
+silently clipped the reset clock off the right edge of `copilot.png` — an
+overflowing line is cropped by the PNG without a word of warning, which is the
+same stale-picture failure the regex check exists to catch. Don't hand-tune font
+sizes; add the segment and re-render.
+
 `make-lines.sh` needs no terminal: the Copilot line's width comes from
 `COPILOT_STATUSLINE_COLS`, forced to 0 there, because that script otherwise sizes
 itself off `/dev/tty` and an agent-run generator produced a picture of a line

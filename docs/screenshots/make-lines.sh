@@ -205,7 +205,12 @@ PY
 # generator run from a script (or from an agent) has no controlling terminal, so
 # it fell back to an 80-column `tput cols` and silently produced a screenshot of
 # a line ending in "…". A picture of a truncated bar is worse than no picture.
-printf '{"display_name":"claude-sonnet-5 · medium · 264K context","current_context_tokens":55000,"displayed_context_limit":264000}' \
+# ai_used.total_nano_aiu is the session's own burn (credits x 1e9), the one live
+# credit figure in the payload; 41.6 AIC sits well under the 257 the pinned cache
+# claims for today, so the "today" floor stays out of the picture and each
+# segment documents its own number. total_duration_ms is what that floor checks
+# the session's age against -- 90 minutes, comfortably inside the pinned day.
+printf '{"display_name":"claude-sonnet-5 · medium · 264K context","current_context_tokens":55000,"displayed_context_limit":264000,"ai_used":{"total_nano_aiu":41600000000},"cost":{"total_duration_ms":5400000}}' \
   | COPILOT_STATUSLINE_COLS="${COPILOT_STATUSLINE_COLS:-0}" \
   bash "$REPO/copilot/statusline.sh" | tr -d '\n' > "$OUT/copilot.ansi"
 

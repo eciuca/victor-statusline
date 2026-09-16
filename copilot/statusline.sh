@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # Copilot CLI status line. Example output:
-#   🤖 sonnet-5/med 55K/264K (21%) | 74%↗ ($2.6≈257/345 AIC) left today | +3% = 95% ($66≈6646 AIC) left / 20wd7h
+#   🤖 sonnet-5/med 55K/264K (21%) | $0.4≈41.6 AIC this session | 74%↗ ($2.6≈257/345 AIC) left today | +3% = 95% ($66≈6646 AIC) left / 20wd7h
 #
 #   • model: display_name with the "claude-" prefix stripped, the reasoning
 #     effort abbreviated after a "/" (medium→med, xhigh, max…) and the
 #     " · N context" tail replaced by "<used>/<limit>" context tokens (used
 #     count coloured yellow ≥65% / red ≥95%; % hidden when the window is 1M).
+#   • session: what THIS session has burned so far — the only live credit
+#     figure on the line, and the one Copilot itself prints in its footer as
+#     "Session: 11.18 AIC used". It arrives in the payload on every render,
+#     whereas the two segments after it come from a cache that is only
+#     refreshed while a session is busy, so they can sit hours behind. Shown to
+#     one decimal below 100 credits: a session is a small number, and rounding
+#     11.18 to "11" would make the bar disagree with Copilot's own footer.
 #   • today: share of today's budget already burned + ($ ≈ burned/budget AIC),
 #     where the budget is simply "credits left at the start of today ÷ working
 #     days left until the reset". Because it is recomputed from the CURRENT
@@ -108,6 +115,14 @@ def usd(credits):
     except (TypeError, ValueError, ZeroDivisionError): return None
     return f"${v:.1f}" if v < 10 else f"${v:.0f}"
 
+def aic(credits):
+    """Credits themselves: one decimal below 100, whole above. A session burns
+    single digits, where the decimal is the whole signal; a monthly balance
+    burns thousands, where it is noise."""
+    try: v = float(credits)
+    except (TypeError, ValueError): return None
+    return f"{v:.1f}" if abs(v) < 100 else f"{v:.0f}"
+
 # ANSI colours (used-token count, pace arrow, reserve) — mirrors victor-claude-statusline.md
 CLR_RESET = "\033[0m"
 CLR_RED   = "\033[31m"
@@ -150,6 +165,22 @@ if isinstance(model, str):
         label = f"{label} {ctx}"
     model = label
 parts.append(f"🤖 {model}")
+
+# --- this session's own credit burn ---------------------------------------
+# The one LIVE credit figure on the line. Copilot ships it in the payload on
+# every render (the same number its own footer shows as "Session: 11.18 AIC
+# used"), while everything after this segment comes from a background cache
+# that is only refreshed while a session is rendering — so on an idle session
+# the monthly figures can be an hour stale and this one is never stale at all.
+# Counted in nano-credits, because 11.17732 AIC has no float representation
+# worth trusting and GitHub sends the integer.
+session_credits = None
+nano = find(d, "total_nano_aiu", "totalNanoAiu")
+if nano is not None:
+    try: session_credits = float(nano) / 1e9
+    except (TypeError, ValueError): session_credits = None
+if session_credits is not None:
+    parts.append(f"{usd(session_credits)}≈{aic(session_credits)} AIC this session")
 
 # --- AI Credits remaining, reserve, working-days to reset ------------------
 q = {}
@@ -240,8 +271,22 @@ if isinstance(snap, dict) and not snap.get("unlimited"):
            and snap.get("credits_used") is not None:
             today_used = max(0.0, float(snap["credits_used"]) - float(base["month_used_at_start"]))
 
+# A session that started today has certainly spent its credits today, so its
+# live figure is a FLOOR for the day's burn. Without it the line can contradict
+# itself — "11.2 AIC this session" sitting next to "0 AIC today" — because the
+# per-day billing endpoint lags the spend by minutes and the cache in front of
+# it only refreshes while a session is rendering. Guarded by the session's
+# wall-clock age: one running since yesterday would book yesterday's credits
+# onto today.
+if today_used is not None and session_credits is not None and session_credits > today_used:
+    age_ms = find(d, "total_duration_ms", "totalDurationMs")
+    try: started = lnow - timedelta(milliseconds=float(age_ms))
+    except (TypeError, ValueError): started = None
+    if started is not None and started.date() == lnow.date():
+        today_used = session_credits
+
 if today_used is not None:
-    seg = f"{usd(today_used)}≈{today_used:.0f} AIC today"
+    seg = f"{usd(today_used)}≈{aic(today_used)} AIC today"
     rem = snap.get("remaining")
     wdl = working_days_left(lnow, reset_dt.astimezone().date()) if reset_dt else 0
     # On a weekend there is no daily budget to measure against — just the raw burn.
@@ -260,7 +305,7 @@ if today_used is not None:
             arrow = pace_arrow(99.0 if frac <= 0 else elapsed / frac)
             # Percentage first, absolutes in parentheses: the share is the glance,
             # the raw credits (and what they cost) are the detail you read second.
-            seg = f"{pct}{arrow} ({usd(today_used)}≈{today_used:.0f}/{budget:.0f} AIC) left today"
+            seg = f"{pct}{arrow} ({usd(today_used)}≈{aic(today_used)}/{budget:.0f} AIC) left today"
     parts.append(seg)
 
 # --- working days + hours until the reset (weekends excluded) -------------
