@@ -12,7 +12,7 @@ which is the part worth stealing.
 
 ```
 Opus 5xh 50K ↗88% / 3h19 ✻0.5 ⊂ $25 victor-statusline@fix-cache +19=70% / 2wd13h
-🤖 opus-4.8 · high · 55K/1M | 6759 AIC (96%)↗ left | resets in 7d 4h
+🤖 sonnet-5m 119/264K 45% | $0.09 ∈ Session: $0.42 | 74%↑ ($7.5/$10) left today | +17%⊂34% $68 (6759 AIC) / 7wd13h left
 ```
 
 ## What the bar actually says
@@ -51,7 +51,8 @@ are not drawn at all — the bar is what remains:
 ![Claude Code status line on an API key, with every field annotated](docs/screenshots/claude-apikey.png)
 
 **GitHub Copilot CLI** — a different script, deliberately the same idioms: pace
-first, absolutes in brackets, working-day clocks:
+first, absolutes in brackets, working-day clocks, and the cost of the turn you
+just ran next to the session it belongs to:
 
 ![GitHub Copilot CLI status line, with every field annotated](docs/screenshots/copilot.png)
 
@@ -144,11 +145,15 @@ wiring to see it park and release against fake state.
 # Copilot CLI
 install -m 755 copilot/statusline.sh    ~/.copilot/statusline.sh
 install -m 755 copilot/quota-refresh.sh ~/.copilot/quota-refresh.sh
+install -m 755 copilot/turn-mark.sh     ~/.copilot/hooks/turn-mark.sh
+install -m 644 copilot/turn-mark.json   ~/.copilot/hooks/turn-mark.json
 bash ~/.copilot/quota-refresh.sh          # prime the quota cache
 ```
 
 then add the `statusLine` block from `copilot/victor-copilot-statusline.md`
-(File 3) to `~/.copilot/settings.json`.
+(File 4) to `~/.copilot/settings.json`. The two `turn-mark` files are what make
+the per-turn figure possible — the payload has no such number and no marker for
+where a turn starts; skip them and the bar simply omits it.
 
 ## Caveats worth knowing before you install
 

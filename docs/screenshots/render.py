@@ -302,55 +302,71 @@ SPECS = [
     dict(
         src="copilot", out="copilot.png",
         title="GitHub Copilot CLI",
-        subtitle="Four segments: which brain and how full, what this session has "
-                 "cost, what today has cost, and what is left of the month's AI "
-                 "Credits. Only the session figure is live \u2014 the other two are a "
-                 "monthly balance, read from a background-refreshed cache rather than "
-                 "from the payload.",
+        subtitle="Four segments: which brain and how full, what the last turn and "
+                 "the whole session have cost, what today has cost, and what is "
+                 "left of the month's AI Credits. Only the turn and session figures are live "
+                 "\u2014 the other two are today's burn and a monthly balance, read from a "
+                 "background-refreshed cache rather than from the payload.",
         fields=[
-            (r"🤖 sonnet-5/med", "model",
+            (r"🤖 sonnet-5m", "model",
              "the robot is how you tell this bar from the Claude one at a glance; then "
-             "the model with its <code>claude-</code> prefix stripped and the effort "
-             "abbreviated after the <code>/</code>."),
-            (r"\d+K/\d+K \(\d+%\)", "model",
-             "context tokens used / window size. The used count goes yellow ≥65% and red "
-             "≥95%; the percentage is hidden when the window is a full 1M."),
-            (r"\$[\d.]+≈[\d.]+ AIC this session", "spend",
-             "what <b>this</b> session has burned — the same number Copilot prints in "
-             "its own footer as <code>Session: 41.60 AIC used</code>, which is where "
-             "this segment came from: the bar was quoting a lagging cache while the "
+             "the model with its <code>claude-</code> prefix stripped and the reasoning "
+             "effort glued on as a single letter — <code>m</code>edium, <code>h</code>igh, "
+             "<code>x</code>high, <code>l</code>ow."),
+            (r"\d+/\d+K \d+%", "model",
+             "context tokens used / window size, sharing one <code>K</code> because "
+             "printing it on both sides said it twice. The used count goes yellow ≥65% "
+             "and red ≥95%; the percentage is hidden when the window is a full 1M."),
+            (r"\$[\d.]+ (?=∈)", "spend",
+             "what the <b>last turn</b> cost, hung off the session total by an "
+             "<code>∈</code> because it is one of the turns inside it. Nothing in the "
+             "payload marks a turn "
+             "boundary, so a <code>userPromptSubmitted</code> hook drops an empty marker "
+             "and the next render promotes the total it last drew — the idle line from "
+             "before the prompt — to this turn's baseline. It freezes when the turn "
+             "ends, which is the point: come back to a session you left working and the "
+             "bar tells you what the prompt you walked away from actually burned."),
+            (r"∈ Session: \$[\d.]+", "spend",
+             "what <b>this</b> session has burned, worded like the footer Copilot "
+             "prints three lines below (<code>Session: 41.60 AIC used</code>) so the two "
+             "read as the same thing in different units. That footer is where this "
+             "segment came from: the bar was quoting a lagging cache while the "
              "app three lines above it had the live figure all along. It is the only "
-             "credit on the line that comes from the payload, so it is also the only "
-             "one that is never stale. One decimal below 100 credits, because a "
-             "session is a small number and <code>11</code> would not match the "
-             "<code>11.18</code> in the footer."),
+             "figure on the line that comes from the payload, so it is also the only "
+             "one that is never stale. One decimal under $10, because a session is a "
+             "small number and the tenth is the whole signal."),
             (r"\d+%[↑↗↘↓]?(?= \()", "5h",
-             "share of <b>today's</b> budget already burned, where today's budget is "
-             "simply the credits left divided by the working days left until the reset. "
-             "The arrow compares that share against how much of the working day "
-             "(09:00–18:00) has elapsed."),
-            (r"\(\$[\d.]+≈[\d.]+/\d+ AIC\)", "5h",
-             "the same thing in absolutes: credits burned today out of today's slice, "
-             "each prefixed with its list price at 100 AIC to the dollar. GitHub's "
-             "per-day billing endpoint lags the spend by minutes, so the session "
-             "figure to the left acts as a <b>floor</b> on this one — the line must "
-             "never read <code>0 AIC today</code> while announcing credits burned in "
-             "this very session."),
-            (r"[+-]\d+%(?= =)", "week",
+             "share of <b>today's</b> budget still unspent — it starts the day at "
+             "<code>100%</code> and counts down, and goes negative once the day is "
+             "overspent. Today's budget is simply the credits left divided by the "
+             "working days left until the reset. The arrow compares the share burned "
+             "against how much of the working day (09:00–18:00) has elapsed."),
+            (r"\(\$[\d.]+/\$\d+\)", "5h",
+             "the same thing in absolutes: dollars <b>left</b> out of today's slice, at "
+             "100 AIC to the dollar, so both sides of the slash agree with the "
+             "percentage in front of them. GitHub's per-day billing endpoint lags the "
+             "spend by minutes, so the session figure to the left acts as a <b>floor</b> "
+             "on the burn behind this one — the line must never read <code>$0 today</code> "
+             "while announcing money burned in this very session."),
+            (r"[+-]\d+%(?=⊂)", "week",
              "the <b>reserve</b>, in percentage points: how much of the month's "
              "entitlement is still there <i>beyond</i> what the calendar says should be "
              "left by now. Signed rather than an arrow, so it reads in the same unit as "
-             "the <code>%</code> beside it."),
-            (r"(?<== )\d+%", "week",
+             "the <code>%</code> beside it, and joined to it by <code>⊂</code> because "
+             "the reserve is a <i>part</i> of what is left, not another name for it."),
+            (r"(?<=⊂)\d+%", "week",
              "share of the monthly AI-Credit entitlement still unspent."),
-            (r"\(\$\d+≈\d+ AIC\)", "week",
-             "those same credits in absolute terms, with their list-price equivalent — "
+            (r"\$\d+ \(\d+ AIC\)", "week",
+             "the same balance in money, with the credits as a parenthesised footnote — "
              "<code>$68</code> lands instantly where <code>6759 AIC</code> needs "
-             "arithmetic first."),
+             "arithmetic first, but GitHub's own UI quotes credits, so the line keeps "
+             "them checkable."),
             # Same shape, same anchor, as the weekly field on the Claude line.
-            (r"(?:\d+wd)?\d+h$", "week",
+            (r"(?:\d+wd)?\d+h left$", "week",
              "working days and hours until the monthly credit quota resets, weekends "
-             "again excluded; <code>wd</code> disappears once under a day is left."),
+             "again excluded; <code>wd</code> disappears once under a day is left. The "
+             "segment's single <code>left</code> lives here, at the end: it is static "
+             "furniture, and it covers the balance and the countdown alike."),
         ],
     ),
 ]

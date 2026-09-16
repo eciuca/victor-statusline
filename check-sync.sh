@@ -18,6 +18,8 @@ PAIRS = [
     ("claude/victor-claude-statusline.md",  "## Hook 3",          "sh",   "claude/hooks/quota-gate.sh"),
     ("copilot/victor-copilot-statusline.md", "## File 1",         "bash", "copilot/statusline.sh"),
     ("copilot/victor-copilot-statusline.md", "## File 2",         "bash", "copilot/quota-refresh.sh"),
+    ("copilot/victor-copilot-statusline.md", "## File 3",         "bash", "copilot/turn-mark.sh"),
+    ("copilot/victor-copilot-statusline.md", "## File 3",         "json", "copilot/turn-mark.json"),
 ]
 
 bad = 0

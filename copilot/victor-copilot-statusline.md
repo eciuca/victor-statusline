@@ -3,41 +3,74 @@
 A rich one-line status bar for **GitHub Copilot CLI**. Example:
 
 ```
-🤖 opus-5/high 55K/264K (21%) | $0.4≈41.6 AIC this session | 21%↗ ($2.3≈225/1048 AIC) left today | +15% = 98% ($197≈19694 AIC) left / 19wd8h
+🤖 opus-5h 55/264K 21% | $0.09 ∈ Session: $0.4 | 79%↗ ($8.2/$10) left today | +15%⊂98% $197 (19694 AIC) / 19wd8h left
 ```
 
 Four ` | `-separated segments:
 
 1. **model/effort context** — model name (the `claude-` prefix stripped), the
-  reasoning effort abbreviated after a `/`, and **used/limit** context tokens.
+  reasoning effort as **one letter glued straight on** (`opus-5h`, `sonnet-5m`,
+  `…x` for xhigh, `…l` for low), and **used/limit** context tokens. `minimal` and
+  `max` would both collide with `medium`, so those two keep their word behind a
+  `/`. The two token counts **share one unit suffix** (`119/264K`) and the
+  percentage stands bare beside them — the duplicated `K` and the parentheses were
+  four columns carrying nothing.
   The used-token count turns **yellow ≥65%** and **red ≥95%** of the window. The
-  `(%)` is shown only when the window isn't the full 1M.
-2. **this session** — the credits *this* conversation has burned so far, the
-   same number Copilot prints in its own footer as `Session: 11.18 AIC used`.
-   It is the **only live credit figure on the line**: it arrives in the payload
-   on every render, while the two segments after it are read from a cache that
-   is refreshed in the background *only while a session is rendering*, so on a
-   session left idle they can sit an hour behind. Shown to one decimal below
-   100 credits — a session is a small number, and rounding 11.18 down to `11`
-   would make the bar disagree with the footer three lines above it.
-3. **today** — share of *today's* budget already burned, a pace arrow, and the
-   absolutes in parentheses: `($ ≈ burned/budget AIC)`. Today's budget is
+  `%` is shown only when the window isn't the full 1M.
+2. **turn ∈ session** — `$0.09 ∈ Session: $0.4`: what the **last turn** cost, and
+   the session total it is one of. The wording is Copilot's own footer
+   (`Session: 285.11 AIC used`) on purpose, so the two numbers can be read against
+   each other instead of looking like two unrelated things; the unit is dollars,
+   because that is what the rest of the line speaks. The `∈` stands in for a label
+   — the turn *is* an element of that session total, and the symbol says so in one
+   column where the word `turn` took five.
+   The **turn** figure is the session total minus whatever it was when that turn
+   started. The payload has no per-turn figure and nothing in it marks a turn
+   boundary, so it comes from the pair of files in **File 3**: a
+   `userPromptSubmitted` hook drops an empty marker, and the next render promotes
+   the total it last drew to the turn's baseline. That last render is the idle line
+   from before the prompt, so the baseline is exact. Once the turn ends the total
+   stops moving and the figure **freezes on what that turn cost** — walk back to a
+   session you left working and the bar tells you what the prompt you fired on your
+   way out actually burned. It is absent until a session's first prompt.
+   The **session** figure is the same number Copilot prints in its footer as
+   `Session: 11.18 AIC used`, and the **only live figure on the line**: it arrives
+   in the payload on every render, while the two segments after it are read from a
+   cache refreshed in the background *only while a session is rendering*, so on a
+   session left idle they can sit an hour behind. Money is shown to the cent below
+   \$1 — a turn is small change, and `$0.0` would say nothing.
+3. **today** — share of *today's* budget **still unspent**, a pace arrow, and the
+   absolutes in parentheses: `($ left/$ budget)`. Today's budget is
    "credits left at the start of today ÷ working days left until the reset",
    recomputed daily, so an overshoot never carries a debt — tomorrow simply gets
-   a smaller slice. The burn itself comes from GitHub's per-day billing
-   endpoint, which lags the spend by minutes, so **segment 2 acts as a floor on
-   it**: the line must never read `0 AIC today` while announcing credits burned
-   in this very session. The floor only applies to a session that *started*
+   a smaller slice. It **starts the day at `100%` and counts down**; both sides
+   of the slash are "left" as well, so nothing inside the parentheses contradicts
+   the percentage in front of them. Overspending shows as a negative (`-14% left
+   today`) rather than being clamped at zero — how far past the plan you are is
+   exactly the number worth seeing. The burn behind it comes from GitHub's
+   per-day billing endpoint, which lags the spend by minutes, so **segment 2 acts
+   as a floor on it**: the line must never read `$0 today` while announcing money
+   burned in this very session. The floor only applies to a session that *started*
    today — checked against its wall-clock age — since an older one would be
    booking yesterday's credits onto today.
 4. **AI Credits** — a signed **reserve** in percentage points (working time
-   elapsed − credits burned), the `% left`, the absolutes `($ ≈ N AIC)`, then the
-   **working** days + hours until the monthly quota resets (weekends excluded).
+   elapsed − credits burned) joined by `⊂` to the `% left`, because the reserve is
+   a *part* of what is left rather than another name for it (`+15%⊂98%` reads "of
+   the 98% still mine, 15 points are ahead of schedule"); then the balance in
+   dollars with the credits as a parenthesised footnote, then the **working** days
+   + hours until the monthly quota resets (weekends excluded). One `left` serves
+   the whole segment and sits at the very end, after the clock: the balance and the
+   countdown are both what is left of the month, and a static word is cheaper read
+   once, last, than stepped over in the middle.
 
-Every credit figure carries its **list-price dollar equivalent** at 100 AIC = \$1
-(`$197≈19694 AIC`). Credits are an abstract unit invented for billing; the dollar
-is the one both a daily burn rate and a monthly balance can be judged in without
-mental arithmetic. The `≈` marks it as a fixed conversion, not an invoice.
+Every figure on the line is in **list-price dollars** at 100 AIC = \$1. Credits are
+an abstract unit invented for billing; the dollar is the one both a daily burn rate
+and a monthly balance can be judged in without mental arithmetic — and printing both
+units on every number (`$2.6≈257 AIC`) cost twice the width to say the same thing
+twice. The credit figure survives in **one** place, the monthly balance
+(`$197 (19694 AIC)`), because that is the number GitHub's own UI quotes back in
+credits, so the line stays comparable with it — in parentheses, as a footnote to
+the dollars rather than their equal.
 
 The finished line is **cut to the terminal width with a `…`**. Copilot CLI redraws
 the status line in place, so one column too many wraps it onto a second row that
@@ -59,8 +92,10 @@ From a repo that contains this file, run `copilot` and paste:
 > Read `copilot/victor-copilot-statusline.md` and set me up an identical Copilot
 > CLI status line. Create `~/.copilot/statusline.sh` and `~/.copilot/quota-refresh.sh`
 > exactly as in the doc, `chmod +x` both, prime the cache by running
-> `bash ~/.copilot/quota-refresh.sh`, and add the `statusLine` block to
-> `~/.copilot/settings.json` (merge with existing JSON, don't clobber it).
+> `bash ~/.copilot/quota-refresh.sh`, add `~/.copilot/hooks/turn-mark.sh`
+> (`chmod +x`) and `~/.copilot/hooks/turn-mark.json` from File 3, and add the
+> `statusLine` block to `~/.copilot/settings.json` (merge with existing JSON,
+> don't clobber it).
 > Then verify by piping a sample JSON payload into `statusline.sh`.
 
 **Prerequisites:** `bash`, `python3`, and the `gh` CLI authenticated
@@ -78,7 +113,8 @@ The fields we use:
 | `model.display_name` (e.g. `claude-opus-4.8 · high · 1M context`) | model · effort segment |
 | `context_window.current_context_tokens` | used tokens |
 | `context_window.displayed_context_limit` | window size |
-| `ai_used.total_nano_aiu` (credits × 10⁹, e.g. `11177320000`) | this session's burn |
+| `ai_used.total_nano_aiu` (credits × 10⁹, e.g. `11177320000`) | this session's burn, and — against the stored baseline — this turn's |
+| `session_id` | which turn-state file to read and write |
 | `cost.total_duration_ms` | session age, guarding the "today" floor |
 
 The **monthly AI-Credit balance and reset date are NOT in that payload.** They
@@ -95,20 +131,28 @@ The relevant snapshot is `quota_snapshots.premium_interactions`
 ```bash
 #!/usr/bin/env bash
 # Copilot CLI status line. Example output:
-#   🤖 sonnet-5/med 55K/264K (21%) | $0.4≈41.6 AIC this session | 74%↗ ($2.6≈257/345 AIC) left today | +3% = 95% ($66≈6646 AIC) left / 20wd7h
+#   🤖 sonnet-5m 55/264K 21% | $0.09 ∈ Session: $0.4 | 26%↗ ($0.9/$3.5) left today | +3%⊂95% $66 (6646 AIC) / 20wd7h left
 #
 #   • model: display_name with the "claude-" prefix stripped, the reasoning
-#     effort abbreviated after a "/" (medium→med, xhigh, max…) and the
-#     " · N context" tail replaced by "<used>/<limit>" context tokens (used
-#     count coloured yellow ≥65% / red ≥95%; % hidden when the window is 1M).
-#   • session: what THIS session has burned so far — the only live credit
+#     effort glued on as one letter (medium→m, high→h, xhigh→x, low→l) and the
+#     " · N context" tail replaced by "<used>/<limit>" context tokens, sharing
+#     one unit suffix ("119/264K"), plus a bare % (used count coloured yellow
+#     ≥65% / red ≥95%; % hidden when the window is 1M).
+#   • turn ∈ session: what the LAST TURN burned, then the session total it is part
+#     of, worded like Copilot's own footer ("Session: 285.11 AIC used") so the two
+#     can be read against each other — in dollars, since that is the unit the rest
+#     of the line speaks. The turn is the running session total minus what it
+#     was when that turn started. Where a turn starts comes from the
+#     userPromptSubmitted hook (turn-mark.sh), which drops a marker this script
+#     turns into a baseline on its next render; absent before a session's first
+#     prompt. Frozen once the turn ends, so walking back to a session tells you
+#     what the prompt you left running actually cost. The session figure is the only live credit
 #     figure on the line, and the one Copilot itself prints in its footer as
 #     "Session: 11.18 AIC used". It arrives in the payload on every render,
 #     whereas the two segments after it come from a cache that is only
 #     refreshed while a session is busy, so they can sit hours behind. Shown to
-#     one decimal below 100 credits: a session is a small number, and rounding
-#     11.18 to "11" would make the bar disagree with Copilot's own footer.
-#   • today: share of today's budget already burned + ($ ≈ burned/budget AIC),
+#     cents below a dollar: a turn is small change, and "$0.0" would say nothing.
+#   • today: share of today's budget still UNSPENT + ($ left/$ budget),
 #     where the budget is simply "credits left at the start of today ÷ working
 #     days left until the reset". Because it is recomputed from the CURRENT
 #     balance every day, overshooting or undershooting today never carries a
@@ -119,15 +163,20 @@ The relevant snapshot is `quota_snapshots.premium_interactions`
 #     none on-track / ↘ yellow / ↓ red too fast).
 #   • AI Credits: a signed RESERVE in percentage points ("how much of the month's
 #     entitlement I still have beyond what I should have left by now", i.e.
-#     working-time elapsed − credits burned), then the remaining % and credits,
-#     then the WORKING days + hours until the monthly quota resets. Signed number
-#     rather than an arrow so it reads in the same unit as the "% left" beside it
+#     working-time elapsed − credits burned), joined by "⊂" to the remaining %
+#     because the reserve is a PART of what is left, not another name for it;
+#     then the balance in dollars with the credits in parentheses, then the
+#     WORKING days + hours until the monthly quota resets. Signed number rather
+#     than an arrow so it reads in the same unit as the "% left" beside it
 #     — mirrors the weekly segment of victor-claude-statusline.md.
-#   • money: both credit figures are prefixed with their list-price equivalent at
-#     AIC_PER_USD credits per dollar ("$198≈19819 AIC"). Credits are an abstract
-#     unit — the dollar is the one both a burn rate and a balance can be judged
-#     in without doing arithmetic in your head. "≈" not "=" because the rate is
-#     a fixed conversion, not an invoice.
+#   • money: everything on the line is DOLLARS at AIC_PER_USD credits per dollar.
+#     Credits are an abstract unit — the dollar is the one both a burn rate and a
+#     balance can be judged in without doing arithmetic in your head, and printing
+#     both units on every figure ("$2.6≈257 AIC") doubled the width of each number
+#     to say the same thing twice. The credit figure survives in exactly one place,
+#     the monthly balance ("$198 (19819 AIC)"), because that is the number GitHub's
+#     own UI quotes back in credits, so the line has to stay comparable with it —
+#     parenthesised, as the footnote to the dollars rather than their equal.
 #
 #   • width: the finished line is cut to the terminal width with a "…" when it
 #     would not fit. Copilot CLI redraws the status line in place, so a single
@@ -165,7 +214,7 @@ if [ "$(( now - cmtime ))" -ge "$TTL" ] && [ "$(( now - lmtime ))" -ge "$TTL" ];
 fi
 
 python3 - "$INPUT" "$CACHE" "$COLS" <<'PY'
-import sys, json
+import sys, json, os, time
 
 raw   = sys.argv[1] if len(sys.argv) > 1 else ""
 cache = sys.argv[2] if len(sys.argv) > 2 else ""
@@ -204,19 +253,29 @@ def human(n):
 # where "19819 AIC" needs a conversion done in your head first.
 AIC_PER_USD = 100.0
 
+def prune_turn_state(sdir, max_age=14 * 86400):
+    """Forget sessions nobody has rendered in a fortnight. Called once per turn
+    (when a marker is consumed), which is rare enough to cost nothing and often
+    enough that the directory never grows into a listing worth noticing."""
+    try: names = os.listdir(sdir)
+    except OSError: return
+    cutoff = time.time() - max_age
+    for n in names:
+        f = os.path.join(sdir, n)
+        try:
+            if os.path.getmtime(f) < cutoff: os.unlink(f)
+        except OSError:
+            pass
+
 def usd(credits):
-    """Credits as list-price dollars: one decimal under $10, whole above."""
+    """Credits as list-price dollars, at the precision the size deserves: cents
+    under a dollar (a single turn is small change, and "$0.0" would say nothing),
+    one decimal under $10, whole dollars above — nobody reads a monthly balance
+    to the cent."""
     try: v = float(credits) / AIC_PER_USD
     except (TypeError, ValueError, ZeroDivisionError): return None
-    return f"${v:.1f}" if v < 10 else f"${v:.0f}"
-
-def aic(credits):
-    """Credits themselves: one decimal below 100, whole above. A session burns
-    single digits, where the decimal is the whole signal; a monthly balance
-    burns thousands, where it is noise."""
-    try: v = float(credits)
-    except (TypeError, ValueError): return None
-    return f"{v:.1f}" if abs(v) < 100 else f"{v:.0f}"
+    if abs(v) < 1:  return f"${v:.2f}"
+    return f"${v:.1f}" if abs(v) < 10 else f"${v:.0f}"
 
 # ANSI colours (used-token count, pace arrow, reserve) — mirrors victor-claude-statusline.md
 CLR_RESET = "\033[0m"
@@ -228,13 +287,19 @@ parts = []
 
 # --- model/effort context-usage ------------------------------------------
 # display_name looks like "claude-sonnet-5 · medium · 264K context"; we strip
-# the "claude-" prefix, abbreviate the effort onto the name with a "/", and
+# the "claude-" prefix, glue the effort onto the name as ONE letter, and
 # replace the " · <N> context" tail with used/limit tokens. The whole segment
 # is one glance's worth of "which brain, how hard, how full".
-EFFORT_SHORT = {"minimal": "min", "min": "min", "low": "low",
-                "medium": "med", "med": "med", "high": "high",
-                "xhigh": "xhigh", "x-high": "xhigh", "extra high": "xhigh",
-                "very high": "xhigh", "max": "max", "maximum": "max"}
+#
+# "sonnet-5m", not "sonnet-5/med": four columns and a separator to say what the
+# single letter says, on a line that is already fighting for width, and everyone
+# reads the letter right the first time. Only efforts whose initial is
+# unambiguous get one — "minimal" and "max" would both collide with "medium", so
+# they keep their word and, with it, the "/" that marks them as a separate token.
+EFFORT_SHORT = {"minimal": "min", "min": "min", "low": "l",
+                "medium": "m", "med": "m", "high": "h",
+                "xhigh": "x", "x-high": "x", "extra high": "x",
+                "very high": "x", "max": "max", "maximum": "max"}
 
 model = find(d, "display_name", "displayName") or find(d, "id", "model") or "copilot"
 if isinstance(model, str):
@@ -243,20 +308,28 @@ if isinstance(model, str):
     bits = [p.strip() for p in model.split(" · ") if "context" not in p.lower()]
     label = bits[0] if bits else "copilot"
     if len(bits) > 1 and bits[1]:
-        label += "/" + EFFORT_SHORT.get(bits[1].lower(), bits[1])
+        eff = EFFORT_SHORT.get(bits[1].lower(), bits[1])
+        label += eff if len(eff) == 1 else "/" + eff
     used  = find(d, "current_context_tokens", "currentContextTokens")
     limit = find(d, "displayed_context_limit", "displayedContextLimit",
                  "context_window_size", "contextWindowSize")
     if used is not None and limit is not None:
         try: upct = 100.0 * float(used) / float(limit)
         except (TypeError, ValueError, ZeroDivisionError): upct = None
-        used_lbl = human(used)
+        used_lbl, lim_lbl = human(used), human(limit)
+        # "119/264K", not "119K/264K": the unit is the same on both sides of the
+        # slash, so the first one is a column spent on nothing. It is only dropped
+        # when the two agree — "55K/1M" still needs both.
+        if used_lbl and lim_lbl and used_lbl[-1] == lim_lbl[-1] and not used_lbl[-1].isdigit():
+            used_lbl = used_lbl[:-1]
         if upct is not None:            # colour the used-token count as the window fills
             if   upct >= 95: used_lbl = f"{CLR_RED}{used_lbl}{CLR_RESET}"
             elif upct >= 65: used_lbl = f"{CLR_YEL}{used_lbl}{CLR_RESET}"
-        ctx = f"{used_lbl}/{human(limit)}"
-        if human(limit) != "1M" and upct is not None:  # show % only when window isn't the full 1M
-            ctx += f" ({upct:.0f}%)"
+        ctx = f"{used_lbl}/{lim_lbl}"
+        # Bare, not parenthesised: nothing else is competing for that spot, so the
+        # brackets were two more columns holding a number that needs no framing.
+        if lim_lbl != "1M" and upct is not None:  # show % only when window isn't the full 1M
+            ctx += f" {upct:.0f}%"
         label = f"{label} {ctx}"
     model = label
 parts.append(f"🤖 {model}")
@@ -274,8 +347,66 @@ nano = find(d, "total_nano_aiu", "totalNanoAiu")
 if nano is not None:
     try: session_credits = float(nano) / 1e9
     except (TypeError, ValueError): session_credits = None
+# --- what the LAST TURN cost ----------------------------------------------
+# The number you want when you walk back to a session you left working: what the
+# prompt you fired before leaving actually burned. The payload has no per-turn
+# figure, only the session's running total, so the turn's cost is that total minus
+# its value when the turn began — and where a turn begins is told to us by the
+# userPromptSubmitted hook (turn-mark.sh), which drops an empty marker file.
+#
+# The marker cannot carry the baseline itself (the hook payload has no spend in
+# it), so this is where the two halves meet: every render records the total it
+# just drew, and a marker means "the value you last drew is where this turn
+# starts". That is exactly right, because the last render before a prompt is the
+# idle line — no credits have moved since.
+#
+# Once the turn ends the total stops moving, so the segment freezes on the final
+# cost of that turn and stays there until the next prompt. Before the first
+# prompt of a session there is no baseline and no segment at all.
+turn_credits = None
+sid = find(d, "session_id", "sessionId")
+if sid is not None and session_credits is not None:
+    sdir = os.path.join(os.path.expanduser("~"), ".copilot", "turn-state")
+    sfile = os.path.join(sdir, f"{sid}.json")
+    marker = os.path.join(sdir, f"{sid}.new")
+    st = {}
+    try:
+        with open(sfile) as f: st = json.load(f)
+    except Exception:
+        st = {}
+    if not isinstance(st, dict): st = {}
+    base = st.get("base")
+    if os.path.exists(marker):
+        base = st.get("last", session_credits)
+        try: os.unlink(marker)
+        except OSError: pass
+        prune_turn_state(sdir)
+    # A total that went BACKWARDS is a session id reused against a stale file;
+    # trust the payload and start over rather than print a negative turn.
+    if base is None or base > session_credits:
+        base = None if base is None else session_credits
+    if base is not None:
+        turn_credits = session_credits - base
+    try:
+        os.makedirs(sdir, exist_ok=True)
+        tmp = sfile + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({"last": session_credits, "base": base}, f)
+        os.replace(tmp, sfile)
+    except Exception:
+        pass
+
+# "$0.09 ∈ Session: $2.9" — Copilot's own footer three lines below says
+# "Session: 285.11 AIC used", so the bar answers in the same words, only in money:
+# two figures that disagree in unit and in wording read as two different things.
+# The turn hangs off it with "∈" rather than a label of its own: it IS one of the
+# turns that make up that session total, and the symbol says so in one column
+# where the word "turn" took five.
 if session_credits is not None:
-    parts.append(f"{usd(session_credits)}≈{aic(session_credits)} AIC this session")
+    seg = f"Session: {usd(session_credits)}"
+    if turn_credits is not None:
+        seg = f"{usd(turn_credits)} ∈ {seg}"
+    parts.append(seg)
 
 # --- AI Credits remaining, reserve, working-days to reset ------------------
 q = {}
@@ -286,7 +417,6 @@ except Exception:
     q = {}
 
 from datetime import datetime, timezone, timedelta
-import os
 
 # One clock for the whole line. COPILOT_STATUSLINE_NOW (ISO-8601, with offset)
 # pins it, for the same reason COPILOT_STATUSLINE_COLS pins the width: the
@@ -381,7 +511,7 @@ if today_used is not None and session_credits is not None and session_credits > 
         today_used = session_credits
 
 if today_used is not None:
-    seg = f"{usd(today_used)}≈{aic(today_used)} AIC today"
+    seg = f"{usd(today_used)} today"
     rem = snap.get("remaining")
     wdl = working_days_left(lnow, reset_dt.astimezone().date()) if reset_dt else 0
     # On a weekend there is no daily budget to measure against — just the raw burn.
@@ -389,9 +519,16 @@ if today_used is not None:
         budget = (float(rem) + today_used) / wdl
         if budget > 0:
             frac = today_used / budget
-            pct = f"{frac * 100:.0f}%"
-            if   frac >= 1.0:  pct = f"{CLR_RED}{pct}{CLR_RESET}"
-            elif frac >= 0.85: pct = f"{CLR_YEL}{pct}{CLR_RESET}"
+            # What is LEFT, not what is gone: the segment says "left today", so the
+            # number next to it has to count down from 100% as the day is spent.
+            # It had been printing the burned share under a "left" label — the one
+            # number on the line you could read backwards without noticing.
+            # Allowed to go negative: "-14% left today" is the whole point of an
+            # overspend, and clamping it at 0% would hide how far past the plan it is.
+            left = 1.0 - frac
+            pct = f"{left * 100:.0f}%"
+            if   left <= 0.0:  pct = f"{CLR_RED}{pct}{CLR_RESET}"
+            elif left <= 0.15: pct = f"{CLR_YEL}{pct}{CLR_RESET}"
             start = lnow.replace(hour=WORK_START, minute=0, second=0, microsecond=0)
             end   = lnow.replace(hour=WORK_END,   minute=0, second=0, microsecond=0)
             elapsed = (lnow - start).total_seconds() / max(1.0, (end - start).total_seconds())
@@ -399,8 +536,10 @@ if today_used is not None:
             # Ahead of the clock => spent a smaller share of the budget than of the day.
             arrow = pace_arrow(99.0 if frac <= 0 else elapsed / frac)
             # Percentage first, absolutes in parentheses: the share is the glance,
-            # the raw credits (and what they cost) are the detail you read second.
-            seg = f"{pct}{arrow} ({usd(today_used)}≈{aic(today_used)}/{budget:.0f} AIC) left today"
+            # the dollars are the detail you read second. Both sides of the slash
+            # are "left" too — money still available out of today's budget — so the
+            # parentheses cannot be read against the percentage in front of them.
+            seg = f"{pct}{arrow} ({usd(max(0.0, budget - today_used))}/{usd(budget)}) left today"
     parts.append(seg)
 
 # --- working days + hours until the reset (weekends excluded) -------------
@@ -415,12 +554,15 @@ if reset_dt:
 
 if isinstance(snap, dict):
     if snap.get("unlimited"):
-        seg = "∞ AIC left"
+        seg = "∞ AIC"
     else:
         rem = snap.get("remaining")
         pr  = snap.get("percent_remaining")
         seg = f"{pr:.0f}% " if pr is not None else ""
-        seg += f"({usd(rem)}≈{int(rem)} AIC) left" if rem is not None else "AIC left"
+        # Dollars bare, credits parenthesised: the dollar is the figure being
+        # read, the credit count is the footnote that makes it checkable against
+        # what GitHub's own UI quotes back.
+        seg += f"{usd(rem)} ({int(rem)} AIC)" if rem is not None else ""
         # RESERVE, in percentage points: working time already elapsed in the
         # billing period minus credits already burned. "+3%" = I am three points
         # of the monthly entitlement richer than the calendar says I should be.
@@ -438,9 +580,17 @@ if isinstance(snap, dict):
                 elif delta == 0: res = "0%"
                 elif delta > -10: res = f"{CLR_YEL}{delta:.0f}%{CLR_RESET}"
                 else: res = f"{CLR_RED}{delta:.0f}%{CLR_RESET}"
-                seg = f"{res} = {seg}"
+                # "⊂", not "=": the reserve is not equal to what is left, it is a
+                # PART of it — "+21%⊂69%" reads "of the 69% still mine, 21 points
+                # are ahead of schedule". The "=" said the two were the same
+                # number. No spaces: one token, so the eye does not stop twice.
+                seg = f"{res}⊂{seg}"
+    # One "left" for the whole segment, parked at the very end after the clock:
+    # the balance and the countdown are both what is LEFT of the month, and the
+    # word is static furniture — reading it once, last, costs nothing and frees
+    # the middle of the segment for figures that actually move.
     if time_left:
-        seg = f"{seg} / {time_left}"
+        seg = f"{seg.rstrip()} / {time_left} left"
     parts.append(seg)
 elif time_left:
     parts.append(f"resets in {time_left}")
@@ -570,7 +720,67 @@ PY
 mv "$tmp" "$CACHE" 2>/dev/null || rm -f "$tmp" 2>/dev/null
 ```
 
-## File 3 — wire it into `~/.copilot/settings.json`
+## File 3 — the turn marker hook
+
+Two files in `~/.copilot/hooks/`. They exist only so the **turn** segment can know
+where a turn begins: the status-line payload carries the session's running total
+and nothing else, and no field in it says "a new prompt just went out".
+
+`~/.copilot/hooks/turn-mark.sh` (`chmod +x`):
+
+```bash
+#!/usr/bin/env bash
+# Copilot CLI hook (userPromptSubmitted): mark that a NEW TURN has begun.
+#
+# The status line wants to show what the last turn cost — the single most useful
+# number when you come back to a session you left working — but the payload it
+# renders from only carries the session's RUNNING total (ai_used.total_nano_aiu).
+# A per-turn figure is that total minus whatever it was when the turn started,
+# and nothing in the payload says where a turn starts.
+#
+# So this hook does the only thing it is in a position to do: drop a marker.
+# It cannot record the credits itself — the hook payload has no spend in it — but
+# the status line remembers the last total it rendered, and a turn begins exactly
+# where that value was frozen. The next render sees the marker, promotes its own
+# "last seen" figure to the turn's baseline, and deletes the marker.
+#
+# Written as a marker rather than a timestamp on purpose: a heuristic ("no render
+# for 30s ⇒ new turn") would reset the counter in the middle of any slow tool call.
+set -u
+sid="$(python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("sessionId") or "")
+except Exception: print("")' 2>/dev/null)"
+[ -n "$sid" ] || exit 0
+dir="$HOME/.copilot/turn-state"
+mkdir -p "$dir" || exit 0
+: > "$dir/$sid.new"
+```
+
+`~/.copilot/hooks/turn-mark.json` — registers it on `userPromptSubmitted`:
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "bash \"$HOME/.copilot/hooks/turn-mark.sh\"",
+        "timeoutSec": 5
+      }
+    ]
+  }
+}
+```
+
+The marker is deliberately **empty**: the hook payload has no spend figure in it,
+so it cannot record the baseline itself. It only says *when*; the status line
+supplies the *how much*, from the total it last rendered. Skip both files and
+everything else still works — the bar simply never grows a `turn` segment.
+
+---
+
+## File 4 — wire it into `~/.copilot/settings.json`
 
 Merge this key into your existing `settings.json` (keep your other settings):
 
@@ -594,7 +804,8 @@ chmod +x ~/.copilot/statusline.sh ~/.copilot/quota-refresh.sh
 # 2. Prime the AI-Credit cache (needs `gh` logged in):
 bash ~/.copilot/quota-refresh.sh
 
-# 3. Add the statusLine block to ~/.copilot/settings.json (see File 3).
+# 3. Add the statusLine block to ~/.copilot/settings.json (see File 4), and
+#    drop File 3's two hook files into ~/.copilot/hooks/ for the turn segment.
 
 # 4. Smoke-test the renderer with a fake payload:
 echo '{"model":{"display_name":"claude-opus-4.8 · high · 1M context"},
@@ -629,10 +840,12 @@ Based on `used/limit`: **≥95% → red**, **≥65% → yellow**, else default.
 ### Credits in dollars
 
 `AIC_PER_USD = 100.0` near the top of the Python block converts every credit
-figure to list-price dollars, printed as `$X≈N AIC`. Under \$10 it keeps one
-decimal (`$1.1`) because a day's burn is a small number where the tenth carries
-the information; at or above \$10 it rounds to whole dollars, since nobody reads
-a monthly balance to the cent. Change the constant if your plan's rate differs.
+figure to list-price dollars. Under \$10 it keeps one decimal (`$1.1`) because a
+day's burn is a small number where the tenth carries the information; at or above
+\$10 it rounds to whole dollars, since nobody reads a monthly balance to the cent.
+Change the constant if your plan's rate differs. Only the monthly balance still
+prints the credits beside the dollars (`$197 (19694 AIC)`) — everywhere else the
+second unit was noise.
 
 ### Working-days countdown
 

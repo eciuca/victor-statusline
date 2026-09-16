@@ -210,7 +210,17 @@ PY
 # claims for today, so the "today" floor stays out of the picture and each
 # segment documents its own number. total_duration_ms is what that floor checks
 # the session's age against -- 90 minutes, comfortably inside the pinned day.
-printf '{"display_name":"claude-sonnet-5 · medium · 264K context","current_context_tokens":55000,"displayed_context_limit":264000,"ai_used":{"total_nano_aiu":41600000000},"cost":{"total_duration_ms":5400000}}' \
+# The "turn" segment only exists once a userPromptSubmitted hook has marked a
+# turn, so the generator plays that out: render once at the pre-prompt total (the
+# baseline the bar remembers), fire turn-mark.sh, then render again 8.6 credits
+# later. Anything less and the picture would be of a bar missing a segment.
+mkdir -p "$SB/home/.copilot/turn-state"
+copilot_payload() {
+  printf '{"session_id":"shot","display_name":"claude-sonnet-5 · medium · 264K context","current_context_tokens":119000,"displayed_context_limit":264000,"ai_used":{"total_nano_aiu":%s},"cost":{"total_duration_ms":5400000}}' "$1"
+}
+copilot_payload 33000000000 | COPILOT_STATUSLINE_COLS=0 bash "$REPO/copilot/statusline.sh" >/dev/null
+printf '{"sessionId":"shot"}' | bash "$REPO/copilot/turn-mark.sh"
+copilot_payload 41600000000 \
   | COPILOT_STATUSLINE_COLS="${COPILOT_STATUSLINE_COLS:-0}" \
   bash "$REPO/copilot/statusline.sh" | tr -d '\n' > "$OUT/copilot.ansi"
 
