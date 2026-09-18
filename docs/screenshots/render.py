@@ -201,13 +201,13 @@ SPECS = [
              "between a spawn and that agent's first completed response."),
             (r"\+\{[^}]*\}", "spend",
              "the fan-out, <b>grouped rather than listed</b>: each entry is "
-             "<code>&lt;model&gt;&lt;effort&gt;</code> with <code>*N</code> when a group "
+             "<code>&lt;model&gt;&lt;effort&gt;</code> with <code>×N</code> when a group "
              "has more than one, biggest group first. Here: two Opus 5 at high effort "
              "and one Sonnet 5 at medium. Haiku, which has no reasoning-effort setting "
              "at all, renders bare (<code>H4.5</code>) rather than inventing a letter. "
              "One line per agent would be a roster; the bar has room for the "
              "<i>shape</i> of the fan-out, which is the part you act on — "
-             "<code>+{F5.1h*21,O5h*3}</code> says “mostly Fable, three Opus stragglers” "
+             "<code>+{F5.1h×21,O5h×3}</code> says “mostly Fable, three Opus stragglers” "
              "in twelve columns. The chip disappears the moment the last agent is "
              "collected."),
         ],

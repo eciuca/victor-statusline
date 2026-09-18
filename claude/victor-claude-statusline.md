@@ -293,16 +293,16 @@ parameter expansion, not `sed`: `$ctx_render` is full of ESC and `&` bytes that
 
 ---
 
-## 1.2 Subagents in flight — `+{O5h*2,S5m}`
+## 1.2 Subagents in flight — `+{O5h×2,S5m}`
 
 Glued onto the model segment while subagents are running, and absent otherwise:
 
 ```
-Opus 5h 60K +{O5h*2,S5m} | ↓48% / 4h44 | $0.3 -2m ⊂ $1.1 | victor-statusline | -1=-1% / 0m
+Opus 5h 60K +{O5h×2,S5m} | ↓48% / 4h44 | $0.3 -2m ⊂ $1.1 | victor-statusline | -1=-1% / 0m
 ```
 
 Two Opus-5 agents at high effort plus one Sonnet-5 at medium. Each entry is
-`<model><effort>`, `*N` when a group has more than one, biggest group first.
+`<model><effort>`, `×N` when a group has more than one, biggest group first.
 
 **Why it exists.** Claude Code's own agent list under the bar names the agents
 and shows their progress, but never says which model any of them got — and that
@@ -314,7 +314,7 @@ A 24-way fan-out on Fable and a 24-way fan-out on Opus look identical while they
 run and differ by an order of magnitude on the bill.
 
 **Grouped, not listed.** One line per agent is a roster; the bar has room for
-the *shape* of the fan-out, which is what you actually act on. `+{F5.1h*21,O5h*3}`
+the *shape* of the fan-out, which is what you actually act on. `+{F5.1h×21,O5h×3}`
 says "the bulk of this is Fable, with three Opus stragglers" in twelve columns.
 
 **Where the data comes from.** Files Claude Code already writes, under
@@ -334,7 +334,7 @@ to *this* session's level, because that is what an agent inherits unless its own
 definition overrides it.
 
 A model with no reasoning-effort setting at all — Haiku — writes no `effort`
-field, and renders bare: `+{H4.5*2,S5h}` is two Haiku 4.5 agents and one
+field, and renders bare: `+{H4.5×2,S5h}` is two Haiku 4.5 agents and one
 Sonnet 5 at high. This was found by running the thing: requiring `effort`
 alongside `model` when reading an agent's transcript meant every Haiku agent
 failed to resolve, was never cached, and fell back to the alias — rendering as
@@ -3148,9 +3148,9 @@ fi
 # there to divide them, the usual pipe when there is no folder segment at all.
 [ -n "$week_seg" ] && out="$out${_loc_sep:- | }$week_seg"
 
-# --- Subagents in flight: "+{O5h*2,S5m}" glued onto the model segment -------
+# --- Subagents in flight: "+{O5h×2,S5m}" glued onto the model segment -------
 # WHAT IT SAYS: how many subagents are working right now, on which brain, at
-# which effort — "+{O5h*2,S5m}" is two Opus-5-high agents plus one Sonnet-5-medium.
+# which effort — "+{O5h×2,S5m}" is two Opus-5-high agents plus one Sonnet-5-medium.
 # Claude Code's own agent list under the bar names the agents but never the model
 # they got, and that is the fact which decides what a fan-out costs and how good
 # its answers will be: the same Task lands on Opus, Sonnet, Fable or Haiku
@@ -3438,7 +3438,7 @@ $_new"
           ord[j + 1] = k
         }
         s = ""
-        for (i = 1; i <= n; i++) s = s (s == "" ? "" : ",") ord[i] (c[ord[i]] > 1 ? "*" c[ord[i]] : "")
+        for (i = 1; i <= n; i++) s = s (s == "" ? "" : ",") ord[i] (c[ord[i]] > 1 ? "×" c[ord[i]] : "")
         printf "+{%s}", s
       }')
     [ -n "$sub_chip" ] && sub_render=" ${GREEN}${sub_chip}${RESET}"

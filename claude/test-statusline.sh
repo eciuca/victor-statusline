@@ -217,17 +217,17 @@ payload=$(cat <<JSON
 JSON
 )
 out=$(printf '%s' "$payload" | sh "$SCRIPT")
-assert_contains     "subagents: groups by model+effort, biggest first" "$out" "+{O5h*2,H4.5,S5m}"
+assert_contains     "subagents: groups by model+effort, biggest first" "$out" "+{O5h×2,H4.5,S5m}"
 assert_not_contains "subagents: no effort letter is invented for Haiku" "$out" "H4.5h"
 assert_contains     "subagents: chip hangs off the model segment"      "$out" "60K +{"
-assert_not_contains "subagents: a returned Task is gone"               "$out" "*3"
+assert_not_contains "subagents: a returned Task is gone"               "$out" "×3"
 assert_not_contains "subagents: a notified async agent is gone"        "$out" "F5.1"
-assert_not_contains "subagents: a silent corpse is not counted"        "$out" "*4"
+assert_not_contains "subagents: a silent corpse is not counted"        "$out" "×4"
 
 # Second render, same state: the per-agent facts now come from the cache file
 # rather than from re-reading seven agent transcripts. Same answer either way.
 out=$(printf '%s' "$payload" | sh "$SCRIPT")
-assert_contains "subagents: cached second render is identical" "$out" "+{O5h*2,H4.5,S5m}"
+assert_contains "subagents: cached second render is identical" "$out" "+{O5h×2,H4.5,S5m}"
 
 # --- Case 7: a done-marker that has scrolled out of the scanned tail ---------
 # Only the last $CLAUDE_SUB_TAIL bytes of the parent transcript are read, and a

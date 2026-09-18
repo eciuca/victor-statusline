@@ -1504,9 +1504,9 @@ fi
 # there to divide them, the usual pipe when there is no folder segment at all.
 [ -n "$week_seg" ] && out="$out${_loc_sep:- | }$week_seg"
 
-# --- Subagents in flight: "+{O5h*2,S5m}" glued onto the model segment -------
+# --- Subagents in flight: "+{O5h×2,S5m}" glued onto the model segment -------
 # WHAT IT SAYS: how many subagents are working right now, on which brain, at
-# which effort — "+{O5h*2,S5m}" is two Opus-5-high agents plus one Sonnet-5-medium.
+# which effort — "+{O5h×2,S5m}" is two Opus-5-high agents plus one Sonnet-5-medium.
 # Claude Code's own agent list under the bar names the agents but never the model
 # they got, and that is the fact which decides what a fan-out costs and how good
 # its answers will be: the same Task lands on Opus, Sonnet, Fable or Haiku
@@ -1794,7 +1794,7 @@ $_new"
           ord[j + 1] = k
         }
         s = ""
-        for (i = 1; i <= n; i++) s = s (s == "" ? "" : ",") ord[i] (c[ord[i]] > 1 ? "*" c[ord[i]] : "")
+        for (i = 1; i <= n; i++) s = s (s == "" ? "" : ",") ord[i] (c[ord[i]] > 1 ? "×" c[ord[i]] : "")
         printf "+{%s}", s
       }')
     [ -n "$sub_chip" ] && sub_render=" ${GREEN}${sub_chip}${RESET}"
