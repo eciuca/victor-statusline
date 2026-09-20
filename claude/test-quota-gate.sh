@@ -64,6 +64,17 @@ assert_between() {
   fi
 }
 
+# A park deadline is the gate's OWN clock plus the cadence, and the gate reads
+# that clock when it starts -- not when this script started. Bounding against
+# the $now at the top of the file therefore measures how long the script took
+# to get here: it held on a quick local run and failed by ~15s on anything
+# loaded, which is the whole reason these two cases were red. The gate's "now"
+# is necessarily somewhere in [launch_at, marked_at], so bound each end against
+# the clock on that side of the launch and the test stops timing the machine.
+assert_cadence() {
+  assert_between "$1" "$2" "$((launch_at + $3))" "$((marked_at + $4))"
+}
+
 write_state() {
   jq -n --argjson u5 "$1" --argjson r5 "$2" --argjson m5 "$3" \
         --argjson u7 "$4" --argjson r7 "$5" --argjson m7 "$6" \
@@ -79,6 +90,7 @@ wait_for_marker() {
     sleep 0.02
     tries=$((tries + 1))
   done
+  marked_at=$(date +%s)
 }
 
 line_count() {
@@ -101,6 +113,7 @@ week_reset=$((now + 7200))
 session=quota-gate-test-default-probe-cadence
 probe_calls="$TMP/weekly-default-probe.calls"
 write_state 88 "$five_reset" "$now" 99 "$week_reset" "$now"
+launch_at=$(date +%s)
 printf '{"session_id":"%s"}' "$session" \
   | env -u CLAUDE_QUOTA_PROBE_SECS -u CLAUDE_WEEKLY_QUOTA_PROBE_SECS \
       CLAUDE_QUOTA_JITTER=0 CLAUDE_QUOTA_WAKE_BUFFER=0 \
@@ -114,8 +127,8 @@ marker="$HOME/.claude/quota-park/$session"
 wait_for_marker "$marker"
 contents=$(sed -n '1p' "$marker" 2>/dev/null)
 default_wake=$(printf '%s' "$contents" | cut -d' ' -f1)
-assert_between "weekly: default live probe cadence is five minutes" \
-  "$default_wake" "$((now + 299))" "$((now + 305))"
+assert_cadence "weekly: default live probe cadence is five minutes" \
+  "$default_wake" 299 305
 stop_gate
 
 # An explicit hourly override remains supported: weekly quota at exactly 1%
@@ -123,6 +136,7 @@ stop_gate
 session=quota-gate-test-weekly
 probe_calls="$TMP/weekly-first-probe.calls"
 write_state 88 "$five_reset" "$now" 99 "$week_reset" "$now"
+launch_at=$(date +%s)
 printf '{"session_id":"%s"}' "$session" \
   | CLAUDE_QUOTA_JITTER=0 CLAUDE_QUOTA_WAKE_BUFFER=0 \
       CLAUDE_WEEKLY_QUOTA_PROBE_SECS=3600 \
@@ -139,8 +153,8 @@ weekly_wake=$(printf '%s' "$contents" | cut -d' ' -f1)
 weekly_window=$(printf '%s' "$contents" | cut -d' ' -f2)
 assert_eq "weekly: one percent left parks on the seven-day window" \
   "$weekly_window" "seven_day"
-assert_between "weekly: configured hourly probe sets the park deadline" \
-  "$weekly_wake" "$((now + 3599))" "$((now + 3605))"
+assert_cadence "weekly: configured hourly probe sets the park deadline" \
+  "$weekly_wake" 3599 3605
 assert_eq "weekly: no prior real probe means probe immediately" \
   "$(line_count "$probe_calls")" "1"
 stop_gate
@@ -150,6 +164,7 @@ stop_gate
 probe_calls="$TMP/weekly-probe.calls"
 session=quota-gate-test-weekly-reset-early
 write_state 88 "$five_reset" "$now" 101 "$week_reset" "$((now - 3601))"
+launch_at=$(date +%s)
 printf '{"session_id":"%s"}' "$session" \
   | CLAUDE_QUOTA_JITTER=0 CLAUDE_QUOTA_WAKE_BUFFER=0 \
       CLAUDE_WEEKLY_QUOTA_PROBE_SECS=3600 \
@@ -175,6 +190,7 @@ session=quota-gate-test-weekly-reset-cached
 "$STATE" publish -1 0 101 "$week_reset" 0 >/dev/null
 assert_eq "weekly: a frozen session payload cannot displace a young probe reading" \
   "$("$STATE" read7 | cut -d' ' -f1,4)" "0 probe"
+launch_at=$(date +%s)
 printf '{"session_id":"%s"}' "$session" \
   | CLAUDE_QUOTA_JITTER=0 CLAUDE_QUOTA_WAKE_BUFFER=0 \
       CLAUDE_WEEKLY_QUOTA_PROBE_SECS=3600 \
@@ -200,6 +216,7 @@ stop_gate
 session=quota-gate-test-five-hour
 probe_calls="$TMP/five-hour-probe.calls"
 write_state 96 "$five_reset" "$now" 98 "$week_reset" "$now"
+launch_at=$(date +%s)
 printf '{"session_id":"%s"}' "$session" \
   | CLAUDE_QUOTA_JITTER=0 CLAUDE_QUOTA_WAKE_BUFFER=0 \
       CLAUDE_QUOTA_PROBE_FILE="$TMP/five-hour-probe.stamp" \
@@ -214,8 +231,8 @@ wait_for_marker "$marker"
 contents=$(sed -n '1p' "$marker" 2>/dev/null)
 assert_eq "five-hour: confirmed low quota parks on the five-hour window" \
   "$(printf '%s' "$contents" | cut -d' ' -f2)" "five_hour"
-assert_between "five-hour: next probe bounds the park" \
-  "$(printf '%s' "$contents" | cut -d' ' -f1)" "$((now + 299))" "$((now + 305))"
+assert_cadence "five-hour: next probe bounds the park" \
+  "$(printf '%s' "$contents" | cut -d' ' -f1)" 299 305
 stop_gate
 
 # If both limits are exhausted, the configured hourly weekly probe is the first
@@ -223,6 +240,7 @@ stop_gate
 session=quota-gate-test-both
 probe_calls="$TMP/weekly-both-probe.calls"
 write_state 96 "$five_reset" "$now" 99 "$week_reset" "$now"
+launch_at=$(date +%s)
 printf '{"session_id":"%s"}' "$session" \
   | CLAUDE_QUOTA_JITTER=0 CLAUDE_QUOTA_WAKE_BUFFER=0 \
       CLAUDE_WEEKLY_QUOTA_PROBE_SECS=3600 \
@@ -240,13 +258,14 @@ both_wake=$(printf '%s' "$contents" | cut -d' ' -f1)
 both_window=$(printf '%s' "$contents" | cut -d' ' -f2)
 assert_eq "both: weekly quota remains the limiting window" \
   "$both_window" "seven_day"
-assert_between "both: configured weekly probe remains hourly" \
-  "$both_wake" "$((now + 3599))" "$((now + 3605))"
+assert_cadence "both: configured weekly probe remains hourly" \
+  "$both_wake" 3599 3605
 stop_gate
 
 # Two percent left is above the weekly threshold and must not pause work.
 session=quota-gate-test-weekly-above-threshold
 write_state 88 "$five_reset" "$now" 98 "$week_reset" "$now"
+launch_at=$(date +%s)
 printf '{"session_id":"%s"}' "$session" \
   | CLAUDE_QUOTA_JITTER=0 CLAUDE_QUOTA_WAKE_BUFFER=0 sh "$GATE"
 if [ ! -f "$HOME/.claude/quota-park/$session" ]; then
@@ -268,6 +287,7 @@ printf '%s pending' "$now" > "$pending_stamp"
   printf '%s ok' "$now" > "$pending_stamp"
 ) &
 updater_pid=$!
+launch_at=$(date +%s)
 printf '{"session_id":"%s"}' "$session" \
   | CLAUDE_QUOTA_JITTER=0 CLAUDE_QUOTA_WAKE_BUFFER=0 \
       CLAUDE_WEEKLY_QUOTA_PROBE_SECS=300 \
