@@ -1543,64 +1543,67 @@ fi
 #
 # WHERE IT COMES FROM: files Claude Code already writes, under
 #   <transcript-dir>/<session-id>/subagents/
-#     agent-<id>.meta.json   toolUseId, agentType, the requested model alias
+#     agent-<id>.meta.json   toolUseId, agentType, the requested model alias,
+#                            and parentAgentId when another agent spawned it
 #     agent-<id>.jsonl       the agent's own transcript: message.model + effort
 # Nothing here probes a running process; it reads what the agents leave behind.
+# Agents spawned BY an agent land in the same directory (spawnDepth 2, with a
+# parentAgentId), so a fan-out inside a fan-out is counted like any other.
 #
-# WHO IS STILL RUNNING is the only hard part, and the answer is in the PARENT
-# transcript, not in mtimes: an agent is done the moment its toolUseId appears as
-# a tool_result (a synchronous Task returning) or inside a <tool-use-id> block
-# (the task-notification an async agent fires when it stops). The one tool_result
-# that does NOT mean done is the "Async agent launched successfully" receipt,
+# WHO IS STILL RUNNING is the only hard part, and it is a race between two
+# clocks. An agent STOPS when the transcript it reports to — the session's for a
+# depth-1 agent, its parent agent's for a nested one — records the fact: its
+# toolUseId as a tool_result (a synchronous Task returning) or inside a
+# <tool-use-id> block, or its agentId inside a <task-id> block (the
+# task-notification an async agent fires when its turn ends). The one tool_result
+# that does NOT mean stopped is the "Async agent launched successfully" receipt,
 # which lands at spawn time — so the scan splits each line on the id delimiter
-# and discounts that chunk alone, rather than skipping the whole line: one user
-# turn can batch a sync result and an async launch together.
+# and discounts that chunk alone, rather than skipping the whole line: one turn
+# can batch a sync result and an async launch together. A forked skill
+# (/code-review run in the background, @code-review-2 under the bar) has no
+# toolUseId at all, only a name; its key is its agentId and its stop is the
+# <task-id> of its notification.
 #
-# A FORKED SKILL HAS NO toolUseId. A slash-command run in the background —
-# "Skill \"code-review\" launched (forked execution)", listed under the bar as
-# @code-review-2 — is an agent like any other and writes the same two files, but
-# its meta.json carries a `name` and no `toolUseId` whatsoever. Keying the scan
-# on that one field dropped such an agent before it was ever counted, and the
-# chip stayed blank through an hour-long review (seen 15 Sep 2026). So an agent
-# without a toolUseId is keyed on its own agentId instead, and retired on the
-# <task-id> of its notification rather than the <tool-use-id>; a resume is a
-# SendMessage addressed to either its id or its name. The <task-id> rule is
-# applied to EVERY agent, not only these: an ordinary async agent's notification
-# carries both ids, so it costs nothing and gives that stop a second, independent
-# witness.
-# The mtime filter is only a floor against corpses — an agent killed with Esc, or
-# orphaned by a crash, may never get a marker, and with no cutoff it would sit in
-# the chip forever.
+# But a stop is NOT final, and that is what every earlier version of this scan
+# got wrong. An async agent whose turn has ended and been notified is woken
+# again — by a SendMessage from whoever spawned it, or, with no one's hand on it,
+# by a background task of its own returning: a `run_in_background` Bash or a
+# child agent re-invokes it when it finishes, exactly as they re-invoke the main
+# session. Seen 20 Sep 2026: a nested agent notified "completed" at 18:53, was
+# woken by its own background sweep thirty seconds later, and worked ten more
+# minutes to a second "completed" — while the chip, which had remembered the
+# first stop as permanent, showed one agent fewer than the native list. A
+# marker-then-resume scan (the previous design) only knew the SendMessage kind of
+# wake, and only when it happened in the transcript being scanned.
 #
-# A MARKER FOUND ONCE IS REMEMBERED, in /tmp beside the model cache. Only the
-# last $SUB_TAIL bytes of the parent transcript are scanned, and a marker does
-# not stay in that window: a busy session writes past it, the marker scrolls out,
-# and from that render on the scan can no longer see that the agent ever stopped.
-# It then reports the agent as live until the mtime floor eventually buries it —
-# fifteen minutes of a chip claiming a fan-out that finished long ago, which is
-# exactly the failure this bar exists to prevent (seen 10 Sep 2026: one async
-# agent, notified, its five <tool-use-id> markers sitting 2.2 MB from the end of
-# a 7.6 MB transcript with a 2 MB tail). Raising $SUB_TAIL only moves the
-# threshold — any fixed window is outrun by a long enough session — so the answer
-# is to write the id down the first time it is seen and never re-derive it.
-# Markers are monotonic, which is what makes this safe to cache: an agent that
-# returned does not un-return. The one thing that brings it back is a RESUME.
+# So the two clocks: every wake, of any kind, from anywhere, appends lines to the
+# AGENT'S OWN transcript, and every stop stamps a marker into the transcript it
+# reports to. An agent is idle exactly when its latest stop-marker is at least as
+# recent as the last line it wrote; anything written after that marker means it
+# is running again, and it will earn a newer marker when it stops again. Both
+# sides carry ISO timestamps, so this is one comparison per agent — no line
+# ordering, no resume detection, no assumption that a marker is monotonic.
+# $SUB_SLACK seconds of tolerance cover the interval between the agent's final
+# write and the harness stamping its stop (0.1–3 s observed); a wake inside that
+# window is missed only until the agent's next line lands, seconds later.
 #
-# A RESUMED AGENT IS LIVE AGAIN. SendMessage to an async agent that has already
-# notified restarts it under the same agentId and the same toolUseId, so its
-# original marker — remembered above — would keep it out of the chip for the
-# rest of the session while it works. Seen 13 Sep 2026: one agent resumed seven
-# times over three hours, the chip showing one agent while the native list under
-# the bar showed two. The resume is visible in the parent transcript as the
-# assistant's tool_use block, `"name":"SendMessage","input":{"to":"<agentId>"`,
-# and the second stop is another notification with the same <tool-use-id>. So
-# the scan records the line of the LAST marker and the LAST resume per agent;
-# a resume after the marker means running, a marker after the resume means done,
-# and the remembered id only decides when the window holds neither. That order
-# is safe: a resume always precedes the stop it leads to, so a stop that has
-# scrolled out took its resume with it.
+# The mtime filter is only a floor against corpses — an agent killed with Esc,
+# or orphaned by a crash, may never get a marker, and with no cutoff it would
+# sit in the chip forever.
+#
+# A MARKER FOUND ONCE IS REMEMBERED, with its timestamp, in /tmp beside the
+# model cache. Only the last $SUB_TAIL bytes of each scanned transcript are
+# read, and a marker does not stay in that window: a busy session writes past
+# it, the marker scrolls out, and from that render on the scan can no longer see
+# that the agent ever stopped. Raising $SUB_TAIL only moves the threshold — any
+# fixed window is outrun by a long enough session — so the timestamp is written
+# down the first time it is seen and the cached value is merged with whatever
+# the window still holds; the newest wins. Remembering is safe precisely because
+# the comparison is against the agent's own last line, not against the cache:
+# a remembered stop cannot hide a later wake.
 SUB_STALE="${CLAUDE_SUB_STALE:-900}"   # s of silence before an agent counts as a corpse
-SUB_TAIL="${CLAUDE_SUB_TAIL:-2000000}" # bytes of parent transcript scanned for done-markers
+SUB_TAIL="${CLAUDE_SUB_TAIL:-2000000}" # bytes of each reporting transcript scanned for stop-markers
+SUB_SLACK="${CLAUDE_SUB_SLACK:-5}"     # s a stop-marker may precede the agent's last line and still count
 sub_render=""
 _sdir=""
 [ -n "$tp" ] && _sdir="${tp%.jsonl}/subagents"
@@ -1621,104 +1624,149 @@ $_stat
 EOF
   _meta=""
   if [ -n "$_fresh" ]; then
-    # id -> key + the model ALIAS that was requested + the agent's name. The
-    # alias is a stand-in only: it says "opus", not which Opus, and it is missing
-    # entirely when the agent inherits. It carries the chip through the seconds
-    # between spawn and the agent's first completed response; after that the
-    # agent's own transcript says what it actually got, and the alias is never
-    # read again. The key is the toolUseId when there is one and the agentId when
-    # there is not (a forked skill) — the scan below only needs it to be the
-    # string the parent transcript will name when this agent stops.
+    # id -> key + the model ALIAS that was requested + the agent's name + the
+    # parent agent, if one spawned it. The alias is a stand-in only: it says
+    # "opus", not which Opus, and it is missing entirely when the agent
+    # inherits. It carries the chip through the seconds between spawn and the
+    # agent's first completed response; after that the agent's own transcript
+    # says what it actually got, and the alias is never read again. The key is
+    # the toolUseId when there is one and the agentId when there is not (a
+    # forked skill) — the scan below only needs it to be the string the
+    # reporting transcript will name when this agent stops.
     # "-" rather than an empty column: the reader splits on runs of blanks, so an
-    # absent model would otherwise shift the name left into its place.
+    # absent field would otherwise shift the ones after it left into its place.
     _meta=$(awk -v want="$_fresh" '
       BEGIN { n = split(want, a, ","); for (i = 1; i <= n; i++) if (a[i] != "") w[a[i]] = 1 }
       {
         id = FILENAME; sub(/.*\/agent-/, "", id); sub(/\.meta\.json$/, "", id)
         if (!(id in w) || (id in seen)) next
         seen[id] = 1
-        t = ""; if (match($0, /"toolUseId":"[^"]*"/)) t = substr($0, RSTART + 13, RLENGTH - 14)
-        m = ""; if (match($0, /"model":"[^"]*"/))     m = substr($0, RSTART + 9,  RLENGTH - 10)
-        nm = ""; if (match($0, /"name":"[^"]*"/))     nm = substr($0, RSTART + 8, RLENGTH - 9)
+        t = ""; if (match($0, /"toolUseId":"[^"]*"/))      t = substr($0, RSTART + 13, RLENGTH - 14)
+        m = ""; if (match($0, /"model":"[^"]*"/))          m = substr($0, RSTART + 9,  RLENGTH - 10)
+        nm = ""; if (match($0, /"name":"[^"]*"/))          nm = substr($0, RSTART + 8, RLENGTH - 9)
+        pa = ""; if (match($0, /"parentAgentId":"[^"]*"/)) pa = substr($0, RSTART + 17, RLENGTH - 18)
         if (t == "") t = id
-        print id " " t " " (m == "" ? "-" : m) " " (nm == "" ? "-" : nm)
+        print id " " t " " (m == "" ? "-" : m) " " (nm == "" ? "-" : nm) " " (pa == "" ? "-" : pa)
       }' "$_sdir"/agent-*.meta.json 2>/dev/null)
   fi
   _running=""
   if [ -n "$_meta" ]; then
-    # Ids already known to be finished, from earlier renders of THIS session.
-    _done_file="/tmp/claude-statusline-agentdone-v1-${sid}.txt"
+    # The agent side of the comparison: the last line each fresh agent wrote,
+    # all in one tail(1) call. Every line names its agentId, so the output needs
+    # no per-file bookkeeping. A last line with no timestamp (a transcript still
+    # being born) reads as running.
+    set --
+    for _i in $(printf '%s' "$_fresh" | tr ',' ' '); do set -- "$@" "$_sdir/agent-$_i.jsonl"; done
+    _last=$(tail -q -n 1 "$@" 2>/dev/null)
+    # The transcripts an agent stops INTO: the session's own, plus the
+    # transcript of every parent agent named by a fresh nested agent. Each is
+    # tailed separately; markers carry absolute timestamps, so the order in
+    # which the tails are concatenated does not matter.
+    set -- "$tp"
+    for _pa in $(printf '%s\n' "$_meta" | awk '$5 != "-" && !s[$5]++ { print $5 }'); do
+      [ -r "$_sdir/agent-$_pa.jsonl" ] && set -- "$@" "$_sdir/agent-$_pa.jsonl"
+    done
+    # Markers already seen by earlier renders of THIS session, one "key stamp"
+    # line each, newest appended last.
+    _done_file="/tmp/claude-statusline-agentdone-v2-${sid}.txt"
     _done=""
     [ -r "$_done_file" ] && _done=$(cat "$_done_file" 2>/dev/null)
     # Through the environment, not -v: an awk -v assignment is a single line
-    # and runs backslash escapes over the value, and this one is a table.
+    # and runs backslash escapes over the value, and these are tables.
     # Two kinds of line come back: "R <id> <alias>" for an agent still running,
-    # "D <toolUseId>" for a marker seen on THIS pass and not yet remembered.
-    _scan=$(tail -c "$SUB_TAIL" "$tp" 2>/dev/null | _meta="$_meta" _done="$_done" awk '
+    # "D <key> <stamp>" for a marker newer than anything remembered.
+    _scan=$(for _f in "$@"; do tail -c "$SUB_TAIL" "$_f" 2>/dev/null; echo; done |
+      _meta="$_meta" _done="$_done" _last="$_last" SLACK="$SUB_SLACK" awk '
+      # ISO-8601 UTC "2026-09-20T18:53:34.378Z" -> a monotonic number in seconds.
+      # Not an epoch (months are taken as 32 days) — only differences within a
+      # day are ever looked at, and those it gets exactly.
+      function iso2n(t,   y, mo, d, h, mi, s) {
+        y = substr(t, 1, 4) + 0; mo = substr(t, 6, 2) + 0; d = substr(t, 9, 2) + 0
+        h = substr(t, 12, 2) + 0; mi = substr(t, 15, 2) + 0; s = substr(t, 18) + 0
+        return (((y * 12 + mo) * 32 + d) * 24 + h) * 3600 + mi * 60 + s
+      }
+      # The newest timestamp on a line. A line may quote older ones — a tool
+      # result that dumped a transcript, an agent report that mentions a time —
+      # and none of them can be later than the line itself, so the maximum is
+      # the line’s own stamp. Only the UTC shape is accepted: a local-time
+      # string quoted in a report would otherwise sort after the real one.
+      function stamp(line,   best, s) {
+        best = ""
+        while (match(line, /"timestamp":"20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9](\.[0-9]+)?Z"/)) {
+          s = substr(line, RSTART + 13, RLENGTH - 14)
+          if (s > best) best = s
+          line = substr(line, RSTART + RLENGTH)
+        }
+        return best
+      }
       BEGIN {
         n = split(ENVIRON["_meta"], rows, "\n")
         for (i = 1; i <= n; i++) {
-          if (split(rows[i], f, " ") < 4 || f[2] == "") continue
+          if (split(rows[i], f, " ") < 5 || f[2] == "") continue
           live[f[2]] = f[1]
           alias[f[1]] = (f[3] == "-") ? "" : f[3]
-          # Every handle the parent transcript may use to name this agent,
-          # pointing at its key: its own agentId, which is how both a <task-id>
-          # and a SendMessage address it, and, for a forked skill, the name it
-          # answers to — @code-review-2.
+          # The agentId is how a <task-id> names an agent — the only handle a
+          # forked skill has, and a second witness for everyone else.
           aid[f[1]] = f[2]
-          ref[f[1]] = f[2]
-          if (f[4] != "-") ref[f[4]] = f[2]
         }
         n = split(ENVIRON["_done"], d, "\n")
-        for (i = 1; i <= n; i++) if (d[i] != "" && (d[i] in live)) cached[d[i]] = 1
+        for (i = 1; i <= n; i++) {
+          if (split(d[i], g, " ") < 2 || !(g[1] in live)) continue
+          if (g[2] > mark[g[1]]) mark[g[1]] = g[2]
+          cached[g[1]] = mark[g[1]]
+        }
+        n = split(ENVIRON["_last"], d, "\n")
+        for (i = 1; i <= n; i++) {
+          if (!match(d[i], /"agentId":"[^"]*"/)) continue
+          a = substr(d[i], RSTART + 11, RLENGTH - 12)
+          if (a in aid) last[a] = stamp(d[i])
+        }
       }
       {
+        ts = ""
         n = split($0, parts, /"tool_use_id":"/)
         for (i = 2; i <= n; i++) {
           p = parts[i]; q = index(p, "\""); if (q < 2) continue
           id = substr(p, 1, q - 1)
           # A launch receipt is not a return value.
-          if ((id in live) && index(p, "Async agent launched successfully") == 0) mark[id] = NR
+          if (!(id in live) || index(p, "Async agent launched successfully")) continue
+          if (ts == "") ts = stamp($0)
+          if (ts > mark[id]) mark[id] = ts
         }
         n = split($0, g, /<tool-use-id>/)
         for (i = 2; i <= n; i++) {
           q = index(g[i], "<"); if (q < 2) continue
           id = substr(g[i], 1, q - 1)
-          if (id in live) mark[id] = NR
+          if (!(id in live)) continue
+          if (ts == "") ts = stamp($0)
+          if (ts > mark[id]) mark[id] = ts
         }
-        # The same notification names the AGENT id too, which is the only handle
-        # a forked skill has — and a free second witness for everyone else.
         n = split($0, k, /<task-id>/)
         for (i = 2; i <= n; i++) {
           q = index(k[i], "<"); if (q < 2) continue
           a = substr(k[i], 1, q - 1)
-          if (a in aid) mark[aid[a]] = NR
-        }
-        # A resume: a SendMessage addressed to the agent — by id or by name.
-        n = split($0, s, /"name":"SendMessage","input":/)
-        for (i = 2; i <= n; i++) {
-          if (!match(s[i], /"to":"[^"]*"/)) continue
-          a = substr(s[i], RSTART + 6, RLENGTH - 7)
-          if (a in ref) resume[ref[a]] = NR
+          if (!(a in aid)) continue
+          if (ts == "") ts = stamp($0)
+          if (ts > mark[aid[a]]) mark[aid[a]] = ts
         }
       }
       END {
         for (t in live) {
-          m = (t in mark)   ? mark[t]   : 0
-          r = (t in resume) ? resume[t] : 0
-          if (r > m)        { print "R " live[t] " " alias[live[t]]; continue }
-          if (m > 0)        { if (!(t in cached)) print "D " t; continue }
-          if (t in cached)  continue
-          print "R " live[t] " " alias[live[t]]
+          id = live[t]
+          if ((t in mark) && mark[t] != "" && mark[t] != cached[t]) print "D " t " " mark[t]
+          if ((t in mark) && mark[t] != "" && (id in last) && last[id] != "" &&
+              iso2n(mark[t]) >= iso2n(last[id]) - SLACK) continue
+          print "R " id " " alias[id]
         }
       }')
     _running=$(printf '%s\n' "$_scan" | sed -n 's/^R //p')
-    # Append rather than rewrite: an id is only ever reported once (the next
-    # render finds it in the cache and drops it before the scan), so the file
-    # grows by one line per agent and never repeats itself. A failed write costs
-    # nothing but the old behaviour.
+    # Append rather than rewrite: a line is written only when the stamp is newer
+    # than the one remembered, so the file grows by one line per stop of an
+    # agent and never repeats itself. A failed write costs nothing but the old
+    # behaviour.
     _newly_done=$(printf '%s\n' "$_scan" | sed -n 's/^D //p')
     [ -n "$_newly_done" ] && { printf '%s\n' "$_newly_done" >> "$_done_file"; } 2>/dev/null
+    set --
   fi
   if [ -n "$_running" ]; then
     # Model and effort never change for a given agent, so they are resolved once
@@ -1826,7 +1874,7 @@ $_new"
     [ -n "$sub_chip" ] && sub_render=" ${GREEN}${sub_chip}${RESET}"
   fi
 fi
-unset _sdir _stat _fresh _meta _running _known _rows _new _ac _line _id _alias _hit _mt _p _i _now
+unset _sdir _stat _fresh _meta _running _known _rows _new _ac _line _id _alias _hit _mt _p _i _now _last _pa _f _scan _done _done_file _newly_done
 out="${out%%@@SUB@@*}${sub_render}${out#*@@SUB@@}"
 
 # --- Resolve the context counter's placeholder, now that the cache state is known.
