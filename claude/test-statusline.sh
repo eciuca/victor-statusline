@@ -56,6 +56,11 @@ assert_not_contains() {
   esac
 }
 
+# Expected wall clock for an epoch, on whichever `date` this machine has: BSD/macOS
+# spells it `-r EPOCH`, GNU/Linux `-d @EPOCH` (see fmt_epoch in the script;
+# claude/test-date-fallback.sh is what tests the script's own fallback).
+clock_of() { date -r "$1" "$2" 2>/dev/null || date -d "@$1" "$2"; }
+
 now=$(date +%s)
 reset=$((now + 3 * 3600 + 23 * 60))   # 3h23m from now
 
@@ -76,7 +81,7 @@ session="statusline-test-parked"
 wake=$((now + 45 * 60 + 12))          # 45m12s from now
 mkdir -p "$HOME/.claude/quota-park"
 printf '%s' "$wake" > "$HOME/.claude/quota-park/$session"
-back=$(date -r "$wake" +%H:%M)
+back=$(clock_of "$wake" +%H:%M)
 payload=$(cat <<JSON
 {"session_id":"$session","model":{"display_name":"Claude Opus"},
  "context_window":{},
@@ -113,7 +118,7 @@ week_reset=$((now + 2 * 86400 + 47 * 60))
 wake=$((week_reset + 12))
 mkdir -p "$HOME/.claude/quota-park"
 printf '%s seven_day' "$wake" > "$HOME/.claude/quota-park/$session"
-back=$(date -r "$wake" '+%a %H:%M')
+back=$(clock_of "$wake" '+%a %H:%M')
 payload=$(cat <<JSON
 {"session_id":"$session","model":{"display_name":"Claude Opus"},
  "context_window":{},

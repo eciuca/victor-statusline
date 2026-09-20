@@ -117,7 +117,7 @@ while :; do
 
   secs=$((wake - now))
   [ "$secs" -le 0 ] && continue
-  stamp=$(date -r "$wake" '+%H:%M' 2>/dev/null)
+  stamp=$(date -r "$wake" '+%H:%M' 2>/dev/null || date -d "@$wake" '+%H:%M' 2>/dev/null)
 
   if [ "$secs" -gt "$MAXSLEEP" ]; then
     printf '%s park-declined session=%s window=%s used=%s reset_in=%ss exceeds max=%ss\n' \
