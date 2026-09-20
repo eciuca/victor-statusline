@@ -163,6 +163,9 @@ where a turn starts; skip them and the bar simply omits it.
   forces each flavour to prove it. Any new `date` or `stat` call needs the same.
   The order differs on purpose: `date` tries BSD first, `stat` tries GNU first,
   because GNU's `stat -f` prints a filesystem report to stdout before failing.
+  The `#!/bin/sh` scripts must also stay POSIX: on Debian and Ubuntu `sh` is
+  dash, which aborts the whole render on a bash-only expansion such as
+  `${var// /}`. macOS `sh` lets that through, so run the tests under dash too.
 - **The Claude bar depends on sibling hooks.** `turn-state.sh` (turn
   boundaries) is not shipped here; the quota trio under `claude/hooks/` is —
   `quota-state.sh` (cross-terminal merge), `quota-probe.sh` (asks the account
