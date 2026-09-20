@@ -68,6 +68,7 @@ just ran next to the session it belongs to:
 | `claude/test-quota-gate.sh`, `test-statusline.sh` | regression harnesses for the gate and the bar |
 | `claude/test-date-fallback.sh` | forces a BSD-only, GNU-only and neither-works `date` and `stat` and checks each fallback (wake clock, mtimes, ISO parsing) degrades instead of erroring |
 | `check-sync.sh` | verifies each doc's embedded copies still match the real scripts |
+| `.github/workflows/ci.yml` | runs `check-sync.sh` and all four test scripts on Ubuntu (GNU `date`/`stat`) and macOS (BSD) for every push to `master` and every pull request |
 | `docs/screenshots/` | the annotated pictures above, plus the two scripts that regenerate them |
 
 Each doc **embeds a verbatim copy** of its scripts — for Claude that is the bar
@@ -165,7 +166,7 @@ where a turn starts; skip them and the bar simply omits it.
   because GNU's `stat -f` prints a filesystem report to stdout before failing.
   The `#!/bin/sh` scripts must also stay POSIX: on Debian and Ubuntu `sh` is
   dash, which aborts the whole render on a bash-only expansion such as
-  `${var// /}`. macOS `sh` lets that through, so run the tests under dash too.
+  `${var// /}`. macOS `sh` lets that through; CI's Ubuntu leg is what catches it.
 - **The Claude bar depends on sibling hooks.** `turn-state.sh` (turn
   boundaries) is not shipped here; the quota trio under `claude/hooks/` is —
   `quota-state.sh` (cross-terminal merge), `quota-probe.sh` (asks the account
