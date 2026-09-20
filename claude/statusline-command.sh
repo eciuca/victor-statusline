@@ -340,8 +340,9 @@ if [ -n "$_bt" ]; then
   _ttyf="$HOME/.claude/cwd/.tty-$PPID"
   [ -r "$_ttyf" ] && read -r _mytty < "$_ttyf" 2>/dev/null
   if [ -z "$_mytty" ]; then
-    _mytty=$(ps -o tty= -p $PPID 2>/dev/null)
-    _mytty=${_mytty// /}
+    # tr, not ${_mytty// /}: this is a #!/bin/sh script and dash aborts the whole
+    # render on that bash-only expansion ("Bad substitution").
+    _mytty=$(ps -o tty= -p $PPID 2>/dev/null | tr -d ' ')
     case "$_mytty" in
       ttys*) { mkdir -p "$HOME/.claude/cwd" && printf '%s' "$_mytty" > "$_ttyf"; } 2>/dev/null || : ;;
     esac
@@ -1408,8 +1409,9 @@ if [ -n "$cwd" ]; then
     # **$PPID, not $$.** Claude Code spawns this script without a controlling
     # terminal of its own (measured: `??`), but it keeps one itself — so the tty
     # to publish under is the parent's, which is also the tty the relay binds by.
-    _tty=$(ps -o tty= -p $PPID 2>/dev/null)
-    _tty=${_tty// /}
+    # tr, not ${_tty// /}: this is a #!/bin/sh script and dash aborts the whole
+    # render on that bash-only expansion ("Bad substitution").
+    _tty=$(ps -o tty= -p $PPID 2>/dev/null | tr -d ' ')
     case "$_tty" in
       ttys*) { mkdir -p "$_pubdir" \
                  && printf '%s' "$cwd" > "$_pubdir/$_tty" \
