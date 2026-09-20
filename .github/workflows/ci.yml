@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS is BSD date/stat, Ubuntu is GNU: the two spellings every
+        # fallback in these scripts has to survive.
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tool versions
+        run: |
+          uname -sr
+          jq --version
+          bc --version | head -1
+          awk --version 2>/dev/null | head -1 || awk -version 2>/dev/null | head -1 || true
+
+      - name: Embedded doc copies match the scripts
+        run: ./check-sync.sh
+
+      - name: Bar
+        run: ./claude/test-statusline.sh
+
+      - name: date/stat fallbacks
+        run: ./claude/test-date-fallback.sh
+
+      - name: Quota gate
+        run: ./claude/test-quota-gate.sh
+
+      - name: Quota plan switch
+        run: ./claude/test-quota-plan-switch.sh
