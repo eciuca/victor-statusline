@@ -15,6 +15,10 @@
 #   (published at https://github.com/victorrentea/victor-statusline)
 # The two are one unit; a behaviour change not reflected there is a bug in the
 # change, not a follow-up.
+# Epoch -> clock text. `date -r EPOCH` is the BSD/macOS spelling; on GNU (Linux)
+# `-r` names a FILE and the epoch is spelled `date -d @EPOCH`. BSD goes first so
+# macOS never pays for a second fork; on Linux the failed first call is silent.
+fmt_epoch() { date -r "$1" "$2" 2>/dev/null || date -d "@$1" "$2" 2>/dev/null; }
 input=$(cat)
 session_id=$(echo "$input" | jq -r '.session_id // empty')
 # --- Diagnostic hatch, off unless ~/.claude/statusline-debug exists ---------
@@ -418,7 +422,7 @@ if [ -n "$five" ]; then
     if [ "$diff" -gt 0 ]; then
       h=$((diff / 3600))
       m=$(((diff % 3600) / 60))
-      until_time=$(date -r "$reset" +%H:%M)
+      until_time=$(fmt_epoch "$reset" +%H:%M)
       # "1h23", not "1:23". A colon is how a WALL CLOCK is written, and this
       # segment has a real wall clock in it ($until_time, the reset hour), so
       # "1:23" invited exactly one misreading — a time of day rather than the
@@ -494,7 +498,8 @@ if [ -n "$five" ]; then
   # `sleep` runs in a child process, so $dur ticks down every render while the
   # turn is blocked.
   #
-  # If `date -r` cannot resolve $pwake there is no clock to land on, and the
+  # If neither `date -r` (BSD) nor `date -d @` (GNU) can resolve $pwake there is
+  # no clock to land on, and the
   # sleep countdown comes back glued to the glyph ("💤2h22") rather than being
   # guessed at — the only case where the second duration earns its columns is
   # the one where it is the only absolute information available.
@@ -504,7 +509,7 @@ if [ -n "$five" ]; then
     pwake=$park_wake
     pnow=$park_now
     if [ -n "$pwake" ]; then
-      pclock=$(date -r "$pwake" +%H:%M 2>/dev/null)
+      pclock=$(fmt_epoch "$pwake" +%H:%M)
       if [ -n "$pclock" ]; then
         sleep_mark="${QORANGE}💤${QCHIP}"
         sleep_tail=" ${QORANGE}→ ${pclock}${QCHIP}"
@@ -1178,7 +1183,7 @@ if [ -n "$week" ]; then
   # figure. Include the weekday so the probe deadline remains unambiguous next
   # to a potentially multi-day weekly reset; a bare clock suffices for 5h.
   if [ "$park_window" = seven_day ]; then
-    week_wake=$(date -r "$park_wake" '+%a %H:%M' 2>/dev/null)
+    week_wake=$(fmt_epoch "$park_wake" '+%a %H:%M')
     week_sleep="${ORANGE}💤${RESET}"
     [ -n "$week_wake" ] && week_sleep="${week_sleep} ${ORANGE}→ ${week_wake}${RESET}"
     wleft_str="${wleft_str}${week_sleep}"
