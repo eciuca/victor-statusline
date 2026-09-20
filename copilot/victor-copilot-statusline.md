@@ -205,7 +205,9 @@ case "$COLS" in ''|*[!0-9]*) COLS=0 ;; esac
 
 # --- refresh the monthly-quota cache in the background when stale (non-blocking) --
 now=$(date +%s 2>/dev/null || echo 0)
-file_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
+# GNU `stat -c` first: on GNU `stat -f` exits 1 yet still prints a block of
+# filesystem info to stdout, which the BSD-first order let into the result.
+file_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0; }
 cmtime=0; [ -f "$CACHE" ] && cmtime=$(file_mtime "$CACHE")
 lock="$CACHE.lock"; lmtime=0; [ -f "$lock" ] && lmtime=$(file_mtime "$lock")
 if [ "$(( now - cmtime ))" -ge "$TTL" ] && [ "$(( now - lmtime ))" -ge "$TTL" ]; then

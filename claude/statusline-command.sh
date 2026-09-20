@@ -18,7 +18,26 @@
 # Epoch -> clock text. `date -r EPOCH` is the BSD/macOS spelling; on GNU (Linux)
 # `-r` names a FILE and the epoch is spelled `date -d @EPOCH`. BSD goes first so
 # macOS never pays for a second fork; on Linux the failed first call is silent.
-fmt_epoch() { date -r "$1" "$2" 2>/dev/null || date -d "@$1" "$2" 2>/dev/null; }
+# A non-numeric epoch is refused up front: BSD's `-d` is a DST flag, not a date,
+# so junk must never fall through to it.
+fmt_epoch() {
+  case "$1" in ''|*[!0-9]*) return 1 ;; esac
+  date -r "$1" "$2" 2>/dev/null || date -d "@$1" "$2" 2>/dev/null
+}
+# File mtime as epoch seconds. GNU spelling FIRST, and the order matters: on GNU
+# `stat -f` means "filesystem status" -- it exits 1 but still writes a block of
+# filesystem info to stdout, so trying the BSD form first would fill the caller's
+# variable with that block. On BSD `stat -c` just fails, silently.
+file_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
+# "<mtime> <path>" per file, one stat(1) for the lot. Same GNU-first order.
+files_mtime() { stat -c '%Y %n' "$@" 2>/dev/null || stat -f '%m %N' "$@" 2>/dev/null; }
+# "2026-09-20T12:00:00" (UTC) -> epoch. BSD `date -j` first; the GNU `date -d`
+# fallback runs only where `date --version` proves it is GNU, because on BSD `-d`
+# is that DST flag and must not be reached with a string it cannot parse.
+utc_epoch() {
+  date -j -u -f "%Y-%m-%dT%H:%M:%S" "$1" +%s 2>/dev/null ||
+    { date --version >/dev/null 2>&1 && date -u -d "$1" +%s 2>/dev/null; }
+}
 input=$(cat)
 session_id=$(echo "$input" | jq -r '.session_id // empty')
 # --- Diagnostic hatch, off unless ~/.claude/statusline-debug exists ---------
@@ -165,7 +184,7 @@ fi
 probe_stamp="${CLAUDE_QUOTA_PROBE_FILE:-$HOME/.claude/quota-probe}"
 probe_secs="${CLAUDE_QUOTA_PROBE_SECS:-${CLAUDE_WEEKLY_QUOTA_PROBE_SECS:-300}}"
 case "$probe_secs" in ''|*[!0-9]*|0) probe_secs=300 ;; esac
-probe_at=$(stat -f %m "$probe_stamp" 2>/dev/null)
+probe_at=$(file_mtime "$probe_stamp")
 case "$probe_at" in ''|*[!0-9]*) probe_at=0 ;; esac
 if [ "$(( $(date +%s) - probe_at ))" -ge "$probe_secs" ] \
    && [ -x "$HOME/.claude/hooks/quota-probe.sh" ]; then
@@ -840,7 +859,7 @@ def isprompt: (.type=="user") and (.isSidechain!=true) and (.isMeta!=true)
   # TTL). The cache is keyed by mtime alone, so a v1 line would be served as
   # valid until the transcript next changes; the version in the name retires it.
   cache="/tmp/claude-statusline-cache-v2-${sid}.txt"
-  mtime=$(stat -f %m "$tp" 2>/dev/null)
+  mtime=$(file_mtime "$tp")
   cached_mtime=""; tok_line=""
   if [ -f "$cache" ]; then
     cached_mtime=$(sed -n '1p' "$cache")
@@ -892,7 +911,7 @@ def isprompt: (.type=="user") and (.isSidechain!=true) and (.isMeta!=true)
   fb_age_secs=""
   if [ -n "$last_ts" ]; then
     ts_clean=${last_ts%%.*}; ts_clean=${ts_clean%Z}
-    ts_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%S" "$ts_clean" +%s 2>/dev/null)
+    ts_epoch=$(utc_epoch "$ts_clean")
     if [ -n "$ts_epoch" ]; then
       _now=$(date +%s); fb_age_secs=$((_now - ts_epoch)); [ "$fb_age_secs" -lt 0 ] && fb_age_secs=0
     fi
@@ -1589,7 +1608,7 @@ if [ -n "$_sdir" ] && [ -d "$_sdir" ] && [ -n "${sid:-}" ]; then
   # times per render would be felt.
   _now=$(date +%s)
   _fresh=""
-  _stat=$(stat -f '%m %N' "$_sdir"/agent-*.jsonl 2>/dev/null)
+  _stat=$(files_mtime "$_sdir"/agent-*.jsonl)
   while IFS=' ' read -r _mt _p; do
     case "$_mt" in ''|*[!0-9]*) continue ;; esac
     [ $((_now - _mt)) -le "$SUB_STALE" ] || continue

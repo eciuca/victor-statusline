@@ -66,7 +66,7 @@ just ran next to the session it belongs to:
 | [`copilot/victor-copilot-statusline.md`](copilot/victor-copilot-statusline.md) | **GitHub Copilot CLI** status line — full reference |
 | `copilot/statusline.sh`, `copilot/quota-refresh.sh` | the scripts it documents |
 | `claude/test-quota-gate.sh`, `test-statusline.sh` | regression harnesses for the gate and the bar |
-| `claude/test-date-fallback.sh` | forces a BSD-only, GNU-only and neither-works `date` and checks the wake clock degrades instead of erroring |
+| `claude/test-date-fallback.sh` | forces a BSD-only, GNU-only and neither-works `date` and `stat` and checks each fallback (wake clock, mtimes, ISO parsing) degrades instead of erroring |
 | `check-sync.sh` | verifies each doc's embedded copies still match the real scripts |
 | `docs/screenshots/` | the annotated pictures above, plus the two scripts that regenerate them |
 
@@ -158,9 +158,11 @@ where a turn starts; skip them and the bar simply omits it.
 
 ## Caveats worth knowing before you install
 
-- **macOS/BSD assumptions.** `stat -f`, `date -j` and friends are BSD flavours;
-  on Linux they need the GNU spellings. (`date -r` is already handled: it falls
-  back to `date -d @`.)
+- **macOS and Linux.** `date -r`, `date -j` and `stat -f` are BSD spellings, so
+  each has a GNU fallback (`date -d`, `stat -c`), and `claude/test-date-fallback.sh`
+  forces each flavour to prove it. Any new `date` or `stat` call needs the same.
+  The order differs on purpose: `date` tries BSD first, `stat` tries GNU first,
+  because GNU's `stat -f` prints a filesystem report to stdout before failing.
 - **The Claude bar depends on sibling hooks.** `turn-state.sh` (turn
   boundaries) is not shipped here; the quota trio under `claude/hooks/` is —
   `quota-state.sh` (cross-terminal merge), `quota-probe.sh` (asks the account
