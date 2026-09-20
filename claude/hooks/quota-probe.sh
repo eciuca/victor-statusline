@@ -50,7 +50,10 @@ force=0
 iso_to_epoch() {
   # macOS date(1) cannot parse fractional seconds or the colon in +00:00.
   _iso=$(printf '%s' "$1" | sed -E 's/\.[0-9]+([+-][0-9][0-9]):([0-9][0-9])$/\1\2/')
-  date -j -f '%Y-%m-%dT%H:%M:%S%z' "$_iso" +%s 2>/dev/null
+  # GNU date parses the result as is; it is tried only where `date --version`
+  # proves it is GNU, because BSD's `-d` is a DST flag, not a date.
+  date -j -f '%Y-%m-%dT%H:%M:%S%z' "$_iso" +%s 2>/dev/null ||
+    { date --version >/dev/null 2>&1 && date -d "$_iso" +%s 2>/dev/null; }
 }
 
 # Epochs pass through; anything else is tried as ISO; garbage becomes 0, which
@@ -95,7 +98,9 @@ mkdir -p "$(dirname "$STAMP")" 2>/dev/null
 if ! mkdir "$LOCK" 2>/dev/null; then
   # A lock older than any request can take (curl gives up at 15s) belongs to a
   # prober that was killed mid-flight; reclaim it rather than never probe again.
-  _lock_at=$(stat -f %m "$LOCK" 2>/dev/null)
+  # GNU `stat -c` first: GNU's `stat -f` exits 1 yet still prints a block of
+  # filesystem info to stdout, which would land in $_lock_at.
+  _lock_at=$(stat -c %Y "$LOCK" 2>/dev/null || stat -f %m "$LOCK" 2>/dev/null)
   case "$_lock_at" in ''|*[!0-9]*) _lock_at=$now ;; esac
   [ "$((now - _lock_at))" -gt 60 ] && rmdir "$LOCK" 2>/dev/null && mkdir "$LOCK" 2>/dev/null || exit 2
 fi
