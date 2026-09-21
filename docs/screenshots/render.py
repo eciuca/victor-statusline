@@ -150,8 +150,16 @@ SPECS = [
              "Welded to the figure it qualifies with an <code>=</code> rather than given "
              "a cell of its own — two sides of one window, not two cells."),
             (r"(?<==)\d+%", "week",
-             "quota left in the rolling <b>7-day</b> window, same thresholds as the 5h "
-             "figure."),
+             "quota left in the rolling <b>7-day</b> window, <b>account-wide</b>, same "
+             "thresholds as the 5h figure."),
+            (r"\(\w\d+%\)", "week",
+             "the same window for <b>one model</b>: an account can carry a scoped weekly "
+             "cap with its own allowance beside the account-wide one, and the tighter of "
+             "the two is the one that actually stops you. One <b>initial</b> names it "
+             "(<code>F</code> = Fable) — the letter only has to disambiguate against the "
+             "figure it is glued to. Bracketed rather than welded with <code>=</code>, "
+             "because this is a <b>different budget</b>, not another view of the one "
+             "before it. Absent on an account with no scoped cap."),
             # The `wd` half is optional: the field drops units it does not need,
             # so late on a Friday it is a bare "13h". Anchored to the end of the
             # line because a bare \d+h would otherwise match inside "3h19".

@@ -167,6 +167,15 @@ if [ -n "$merged" ]; then
     week=$m_week
     week_reset=$m_week_reset
   fi
+  # Fields 6-8 are the account's tightest PER-MODEL weekly cap -- Fable has had
+  # one since 2026-09 -- with the model's name and its own reset. It is a
+  # different budget from the weekly above, not a better reading of it, so it
+  # gets its own chip rather than being folded in. Probe-only: a session's
+  # `rate_limits` never carries it, which is why it survives a render where the
+  # probe has not run (quota-state.sh passes it through untouched).
+  wscoped=$(printf '%s' "$merged" | cut -d' ' -f6)
+  wscoped_label=$(printf '%s' "$merged" | cut -d' ' -f7)
+  wscoped_reset=$(printf '%s' "$merged" | cut -d' ' -f8)
 fi
 
 # The merge above is only as good as the freshest SESSION cache on the machine,
@@ -369,7 +378,7 @@ park="$HOME/.claude/quota-park/$session_id"
 if [ -n "$session_id" ] && [ -f "$park" ]; then
   IFS=' ' read -r park_wake park_window < "$park" || :
   [ -n "$park_window" ] || park_window=five_hour
-  case "$park_window" in five_hour|seven_day) ;; *) park_wake=""; park_window="" ;; esac
+  case "$park_window" in five_hour|seven_day|weekly_scoped) ;; *) park_wake=""; park_window="" ;; esac
   case "$park_wake" in
     ''|*[!0-9]*) park_wake=""; park_window="" ;;
     *)
@@ -1209,6 +1218,54 @@ if [ -n "$week" ]; then
     wleft_str="${wleft_str}${week_sleep}"
   fi
 
+  # --- The per-model weekly cap, riding the weekly cell as "(F86%)"
+  # An account can hold two weekly budgets at once: the account-wide one, which
+  # is the figure beside this chip, and a per-model cap with its own allowance
+  # (Fable's, since 2026-09). Until now the bar showed whichever was tighter and
+  # said nothing about which, so it read "86% left" on an account /usage put at
+  # 92% -- the right number for the wrong budget, and no way to tell from the
+  # bar. Two figures side by side cost three columns and remove the ambiguity
+  # entirely: the weekly number is always the account, the chip is always a
+  # model.
+  # The model is one INITIAL, not a name: this chip sits in the last cell of an
+  # already crowded bar, the set of scoped models is tiny, and the letter only
+  # has to disambiguate against the account figure it is glued to -- "(F86%)"
+  # cannot be read as anything but "Fable, 86% left". The chip disappears with
+  # the cap, so an account with no scoped weekly shows the weekly cell it always
+  # had.
+  wchip=""
+  case "$wscoped" in
+    ''|-|-1|*[!0-9.]*) ;;
+    *)
+      # A stored reading whose window has already turned over is last week's
+      # budget; drop it rather than show a figure the account no longer holds.
+      if [ -z "$wscoped_reset" ] || [ "$wscoped_reset" = 0 ] \
+         || [ "$wscoped_reset" -gt "$(date +%s)" ] 2>/dev/null; then
+        case "$wscoped_label" in
+          ''|-) ;;
+          *)
+            sleft=$(printf '%.0f' "$(echo "100 - $wscoped" | bc -l)")
+            sinit=$(printf '%s' "$wscoped_label" | cut -c1 | tr '[:lower:]' '[:upper:]')
+            schip="${sinit}${sleft}%"
+            if [ "$sleft" -lt 5 ]; then
+              schip="${RED}${schip}${RESET}"
+            elif [ "$sleft" -lt 15 ]; then
+              schip="${ORANGE}${schip}${RESET}"
+            fi
+            # A park caused by the scoped cap belongs on the scoped figure: the
+            # account weekly beside it is not what stopped the terminal.
+            if [ "$park_window" = weekly_scoped ]; then
+              s_wake=$(fmt_epoch "$park_wake" '+%a %H:%M')
+              schip="${schip}${ORANGE}💤${RESET}"
+              [ -n "$s_wake" ] && schip="${schip} ${ORANGE}→ ${s_wake}${RESET}"
+            fi
+            wchip="(${schip})"
+            ;;
+        esac
+      fi
+      ;;
+  esac
+
   wpace=""
   wdur=""
   if [ -n "$week_reset" ] && [ "$week_reset" -gt 0 ] 2>/dev/null; then
@@ -1324,6 +1381,7 @@ if [ -n "$week" ]; then
   else
     week_seg="$wleft_str"
   fi
+  [ -n "$wchip" ] && week_seg="${week_seg} ${wchip}"
   [ -n "$wdur" ] && week_seg="${week_seg} / ${wdur}"
 fi
 # $week_seg is BUILT here, next to the arithmetic that produces it, but APPENDED

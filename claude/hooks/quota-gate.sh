@@ -1,7 +1,14 @@
 #!/bin/sh
-# Park this terminal when the 5h quota is nearly gone or the weekly quota has
+# Park this terminal when the 5h quota is nearly gone or a weekly quota has
 # 1% or less left, but only after the account's live usage endpoint confirms it.
-# Both windows wake at the next probe, so a plan change releases parked work.
+# Every window wakes at the next probe, so a plan change releases parked work.
+#
+# "A weekly quota" is two of them: the account-wide one and the tightest
+# per-model scoped cap (Fable's, see quota-state.sh). They are displayed apart
+# -- the bar's weekly cell and its "(F14%)" chip -- but either one hitting the
+# floor blocks the requests it governs, so either one parks the terminal. The
+# window recorded in the park marker says which, and the bar hangs the 💤 on
+# the figure that caused it.
 #
 # Wired to UserPromptSubmit, PreToolUse and PostToolUse: those are the three
 # points immediately before an API request. PostToolUse is the tightest (the
@@ -55,6 +62,10 @@ while :; do
   resets7=$(printf '%s' "$state7" | cut -d' ' -f2)
   meas7=$(printf '%s' "$state7" | cut -d' ' -f3)
   source7=$(printf '%s' "$state7" | cut -d' ' -f4)
+  stateS=$("$HOME/.claude/hooks/quota-state.sh" reads 2>/dev/null)
+  usedS=$(printf   '%s' "$stateS" | cut -d' ' -f1)
+  resetsS=$(printf '%s' "$stateS" | cut -d' ' -f2)
+  measS=$(printf   '%s' "$stateS" | cut -d' ' -f3)
   now=$(date +%s)
 
   # Preserve the existing 5h decision exactly: park only on confirmed data.
@@ -83,7 +94,19 @@ while :; do
       ;;
   esac
 
-  [ "$go" = 1 ] || [ "$go7" = 1 ] || exit 0
+  # The scoped cap is probe-only -- nothing else can write it -- so there is no
+  # `source` to check here, only that the reading is not left over from a window
+  # that has already reset.
+  goS=0
+  case "$usedS" in
+    ''|-1|*[!0-9.]*) ;;
+    *)
+      goS=$(awk -v u="$usedS" -v t="$WEEK_THRESH" -v r="$resetsS" -v n="$now" \
+        'BEGIN{ print ((100 - u) <= t && r > n) ? 1 : 0 }')
+      ;;
+  esac
+
+  [ "$go" = 1 ] || [ "$go7" = 1 ] || [ "$goS" = 1 ] || exit 0
 
   if [ "$verified" = 0 ]; then
     # A failed or concurrent probe is not proof of exhaustion. Let Claude make
@@ -101,6 +124,9 @@ while :; do
   if [ "$go7" = 1 ]; then
     [ "$source7" = probe ] && [ "$((now - meas7))" -le 30 ] || exit 0
   fi
+  if [ "$goS" = 1 ]; then
+    [ "$((now - measS))" -le 30 ] 2>/dev/null || exit 0
+  fi
 
   probe_last=$(sed -n '1p' "$PROBE_STAMP" 2>/dev/null | cut -d' ' -f1)
   case "$probe_last" in ''|*[!0-9]*) probe_last=$now ;; esac
@@ -109,6 +135,10 @@ while :; do
     window=seven_day
     used=$used7
     reset_wake=$((resets7 + BUFFER + jitter))
+  elif [ "$goS" = 1 ]; then
+    window=weekly_scoped
+    used=$usedS
+    reset_wake=$((resetsS + BUFFER + jitter))
   else
     window=five_hour
     reset_wake=$((resets + BUFFER + jitter))

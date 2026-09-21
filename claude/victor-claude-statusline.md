@@ -73,9 +73,10 @@ time until the window resets:
 Opus 5h 3%💤 → 21:15 / 4h51 | ai | +15=82% / 3wd8h
 ```
 
-The same gate also parks at **1% or less weekly quota**, but marks the weekly
-cell instead. Its wake clock is the next five-minute live quota probe, not a
-blind multi-day sleep to the cached reset:
+The same gate also parks at **1% or less weekly quota** — the account-wide
+budget or a per-model cap, whichever runs out first — but marks the weekly cell
+instead. Its wake clock is the next five-minute live quota probe, not a blind
+multi-day sleep to the cached reset:
 
 ```
 Opus 5h 60% / 3h22 ai -6=0%💤 → Fri 17:08 / 7h
@@ -1067,7 +1068,8 @@ the pace is **joined to it by an `=`**, with no spaces, see below.
 | Piece | Meaning | Source |
 |-------|---------|--------|
 | `+24=` | pace: **percentage points** off a straight line, `elapsed% − used%`; joined by `=` to the figure it qualifies, unspaced; **absent when it is 0** (see below) | derived |
-| `70%` | quota remaining this week = `100 − used%` | `.rate_limits.seven_day.used_percentage` |
+| `70%` | quota remaining this week, **account-wide** = `100 − used%` | `.rate_limits.seven_day.used_percentage` |
+| `(F22%)` | the same week for **one model**, when the account carries a scoped cap; absent otherwise | `quota.json` `.weekly_scoped`, written only by `quota-probe.sh` |
 | `1d1h` | **working** time until the weekly window resets (weekends excluded) | `.rate_limits.seven_day.resets_at` |
 
 Pace **leads** the absolute figure, mirroring the 5h arrow: the signed number is
@@ -1170,6 +1172,47 @@ hour you can plan around — and the whole point of the segment is deciding what
 do *today*. A zero tail is dropped (`5d`, never `5d0h`), and below a day it
 degrades to `10h`, then `44m`, then `0m` across the weekend.
 
+### The per-model cap — `(F22%)`
+
+An account can hold **two weekly budgets at once**: the account-wide one, and a
+`weekly_scoped` cap that governs a single model and has its own allowance
+(Fable has carried one since September 2026). They are not two readings of the
+same thing — spending on Opus does not touch Fable's cap, and Fable's cap
+running out does not stop Opus.
+
+For a while the bar pretended otherwise. `quota-probe.sh` took `max_by(.percent)`
+across every weekly limit and wrote the winner into `seven_day`, on the
+reasoning that the tighter cap is the one that will actually stop you. It is —
+but the figure that reached the screen was then Fable's budget wearing the
+account's label, with nothing to tell them apart. On 21 September 2026 the bar
+read `86% left` on an account the `/usage` screen put at `92%`: both numbers
+correct, both about different budgets, and no way to discover that from the bar.
+
+So they are shown side by side. The account weekly is always the figure after
+the `=`; the chip is always a model. Three columns buy the distinction outright.
+
+- **One initial, not a name.** This is the last cell of an already crowded bar,
+  the set of scoped models is tiny, and the letter only has to disambiguate
+  against the figure it is glued to — `(F22%)` cannot be read as anything but
+  "Fable, 22% left". The initial comes from the endpoint's own
+  `scope.model.display_name`, so a cap on a different model names itself.
+- **Brackets, not the `=` weld.** `=` means *two sides of one window* (§the
+  pace). This is a **different window**, so it gets the shape the bar already
+  uses elsewhere for a rider carrying its own quantity.
+- **Probe-only.** A session payload's `rate_limits` carries the two
+  account-wide windows and nothing else, so no terminal can ever observe this
+  figure from its own headers. It comes from `quota.json`, which means it is
+  there from the first render of a fresh terminal and survives renders where
+  the probe has not run — `quota-state.sh publish` passes it through untouched
+  rather than merging it. A stored reading whose own `resets_at` has passed is
+  dropped rather than shown: that is last week's budget.
+- **Absent when there is no cap.** An account with a single weekly limit gets
+  exactly the cell it always had.
+
+The colour thresholds are the weekly figure's (orange under 15%, red under 5%),
+and a park caused by this cap puts its `💤` **inside the brackets** — hanging it
+on the healthy account figure beside it would name the wrong budget.
+
 ### Why this segment can be trusted more than you'd expect
 
 The weekly reading goes stale the same way the 5h one does — `rate_limits` is a
@@ -1186,8 +1229,10 @@ number within minutes of a plan switch instead of at the next window reset.
 ### Parked on weekly quota — `0%💤 → Fri 17:08 / 7h`
 
 The request gate pauses when weekly quota remaining reaches **1% or less**
-(`used_percentage >= 99`). This is a separate threshold from the unchanged
-5-hour rule: `CLAUDE_WEEKLY_QUOTA_MIN_PCT` defaults to `1`, while
+(`used_percentage >= 99`) — in the account-wide window or in a per-model cap,
+since either one blocks the requests it governs, and the park marker records
+which so the glyph lands on the right figure. This is a separate threshold from
+the unchanged 5-hour rule: `CLAUDE_WEEKLY_QUOTA_MIN_PCT` defaults to `1`, while
 `CLAUDE_QUOTA_MIN_PCT` still defaults to `5` and keeps its existing strict
 comparison.
 
@@ -1222,8 +1267,10 @@ concurrent callers from sending duplicate requests; a hook that cannot obtain
 a live measurement lets Claude proceed. PID-derived jitter spreads parked
 terminals around the next probe deadline.
 
-If both windows are exhausted, the weekly cell carries the sleep glyph. Each
-live check re-evaluates both windows before parking again. The `604920`-second
+If several windows are exhausted at once, the account weekly outranks the
+scoped cap and both outrank the 5h one, so the sleep glyph lands on the slowest
+window to come back. Each live check re-evaluates every window before parking
+again. The `604920`-second
 safety ceiling and `605040` hook timeout remain, although an individual sleep
 is now only about five minutes.
 
@@ -1570,9 +1617,11 @@ that every status line writes (~1×/sec) and reads back, for **both** windows:
   so a hundred terminals send one request — and it asks the authenticated usage
   endpoint behind Claude Code's `/usage` screen, then `quota-state.sh set`s
   **both** windows with `measured_at = now` and `source: probe`. The weekly
-  figure is the tightest of the account's weekly caps (`limits[].group ==
-  "weekly"`, so a per-model scoped cap counts), falling back to
-  `seven_day.utilization`; the 5h figure gets corrected by the same request,
+  figure is the account-wide cap (`limits[]` with `group == "weekly"` and no
+  `scope`), falling back to `seven_day.utilization`; the tightest **scoped**
+  cap is stored apart, as the `weekly_scoped` window behind the `(F22%)` chip,
+  rather than folded into the same number; the 5h figure gets corrected by the
+  same request,
   which is also why it never shows the grey `?` while the probe is healthy.
 - **A measurement outranks a cache.** While a window's stored reading is the
   probe's and younger than two probe intervals, no session reading displaces
@@ -1593,7 +1642,8 @@ that every status line writes (~1×/sec) and reads back, for **both** windows:
   measured it stays bookkeeping, not worth a glyph. How *old* it is, is not: see
   the grey `?` in §2.
 - `quota-state.sh read` emits `used resets_at measured_at source` for the 5h
-  window; `read7` the weekly quadruple. The sibling `quota-gate.sh` consumes both.
+  window; `read7` the weekly quadruple, `reads` the scoped one (`used resets_at
+  measured_at label`). The sibling `quota-gate.sh` consumes all three.
   They are parsed with `cut -d' ' -f<n>`, **not** `${x%% *}`/`${x##* }` —
   when the output grew a third field the suffix-strip form silently started
   returning `measured_at` where `resets_at` was meant. Extending an output that
@@ -1837,6 +1887,15 @@ if [ -n "$merged" ]; then
     week=$m_week
     week_reset=$m_week_reset
   fi
+  # Fields 6-8 are the account's tightest PER-MODEL weekly cap -- Fable has had
+  # one since 2026-09 -- with the model's name and its own reset. It is a
+  # different budget from the weekly above, not a better reading of it, so it
+  # gets its own chip rather than being folded in. Probe-only: a session's
+  # `rate_limits` never carries it, which is why it survives a render where the
+  # probe has not run (quota-state.sh passes it through untouched).
+  wscoped=$(printf '%s' "$merged" | cut -d' ' -f6)
+  wscoped_label=$(printf '%s' "$merged" | cut -d' ' -f7)
+  wscoped_reset=$(printf '%s' "$merged" | cut -d' ' -f8)
 fi
 
 # The merge above is only as good as the freshest SESSION cache on the machine,
@@ -2039,7 +2098,7 @@ park="$HOME/.claude/quota-park/$session_id"
 if [ -n "$session_id" ] && [ -f "$park" ]; then
   IFS=' ' read -r park_wake park_window < "$park" || :
   [ -n "$park_window" ] || park_window=five_hour
-  case "$park_window" in five_hour|seven_day) ;; *) park_wake=""; park_window="" ;; esac
+  case "$park_window" in five_hour|seven_day|weekly_scoped) ;; *) park_wake=""; park_window="" ;; esac
   case "$park_wake" in
     ''|*[!0-9]*) park_wake=""; park_window="" ;;
     *)
@@ -2879,6 +2938,54 @@ if [ -n "$week" ]; then
     wleft_str="${wleft_str}${week_sleep}"
   fi
 
+  # --- The per-model weekly cap, riding the weekly cell as "(F86%)"
+  # An account can hold two weekly budgets at once: the account-wide one, which
+  # is the figure beside this chip, and a per-model cap with its own allowance
+  # (Fable's, since 2026-09). Until now the bar showed whichever was tighter and
+  # said nothing about which, so it read "86% left" on an account /usage put at
+  # 92% -- the right number for the wrong budget, and no way to tell from the
+  # bar. Two figures side by side cost three columns and remove the ambiguity
+  # entirely: the weekly number is always the account, the chip is always a
+  # model.
+  # The model is one INITIAL, not a name: this chip sits in the last cell of an
+  # already crowded bar, the set of scoped models is tiny, and the letter only
+  # has to disambiguate against the account figure it is glued to -- "(F86%)"
+  # cannot be read as anything but "Fable, 86% left". The chip disappears with
+  # the cap, so an account with no scoped weekly shows the weekly cell it always
+  # had.
+  wchip=""
+  case "$wscoped" in
+    ''|-|-1|*[!0-9.]*) ;;
+    *)
+      # A stored reading whose window has already turned over is last week's
+      # budget; drop it rather than show a figure the account no longer holds.
+      if [ -z "$wscoped_reset" ] || [ "$wscoped_reset" = 0 ] \
+         || [ "$wscoped_reset" -gt "$(date +%s)" ] 2>/dev/null; then
+        case "$wscoped_label" in
+          ''|-) ;;
+          *)
+            sleft=$(printf '%.0f' "$(echo "100 - $wscoped" | bc -l)")
+            sinit=$(printf '%s' "$wscoped_label" | cut -c1 | tr '[:lower:]' '[:upper:]')
+            schip="${sinit}${sleft}%"
+            if [ "$sleft" -lt 5 ]; then
+              schip="${RED}${schip}${RESET}"
+            elif [ "$sleft" -lt 15 ]; then
+              schip="${ORANGE}${schip}${RESET}"
+            fi
+            # A park caused by the scoped cap belongs on the scoped figure: the
+            # account weekly beside it is not what stopped the terminal.
+            if [ "$park_window" = weekly_scoped ]; then
+              s_wake=$(fmt_epoch "$park_wake" '+%a %H:%M')
+              schip="${schip}${ORANGE}💤${RESET}"
+              [ -n "$s_wake" ] && schip="${schip} ${ORANGE}→ ${s_wake}${RESET}"
+            fi
+            wchip="(${schip})"
+            ;;
+        esac
+      fi
+      ;;
+  esac
+
   wpace=""
   wdur=""
   if [ -n "$week_reset" ] && [ "$week_reset" -gt 0 ] 2>/dev/null; then
@@ -2994,6 +3101,7 @@ if [ -n "$week" ]; then
   else
     week_seg="$wleft_str"
   fi
+  [ -n "$wchip" ] && week_seg="${week_seg} ${wchip}"
   [ -n "$wdur" ] && week_seg="${week_seg} / ${wdur}"
 fi
 # $week_seg is BUILT here, next to the arithmetic that produces it, but APPENDED
@@ -3690,7 +3798,8 @@ parses `quota.json` directly.
 # than the race does.
 #
 #   quota-state.sh publish <u5> <r5> <u7> <r7> <fresh>
-#                                       -> echoes merged "u5 r5 u7 r7 measured5"
+#                                       -> echoes merged
+#                                          "u5 r5 u7 r7 measured5 usScoped labelScoped rScoped"
 #   quota-state.sh set <u5> <r5> <u7> <r7>
 #                                       -> the probe's write: replaces both windows
 #                                          unconditionally, measured_at=now, source=probe,
@@ -3700,6 +3809,22 @@ parses `quota.json` directly.
 #                                          Echoes the same line as publish.
 #   quota-state.sh read                 -> echoes stored "u5 r5 m5 source"  (five_hour)
 #   quota-state.sh read7                -> echoes stored "u7 r7 m7 source"  (seven_day)
+#   quota-state.sh reads                -> echoes stored "us rs ms label" (weekly_scoped)
+#
+# THE THIRD WINDOW. An account can carry more than one weekly cap: `weekly_all`
+# plus a `weekly_scoped` one per model with its own allowance (Fable has had one
+# since 2026-09). They are different budgets and only one of them is yours to
+# spend on the model in play, so they are stored apart -- `seven_day` is always
+# the ACCOUNT-WIDE weekly, and `weekly_scoped` holds the tightest per-model cap
+# with the model's name in `label` (the bar renders it as "(F14%)"). Collapsing
+# the two into one field, which is what the probe used to do by writing whichever
+# was higher into `seven_day`, made the bar read 14% while /usage said 8% and
+# gave no way to tell which budget the number belonged to.
+#
+# The scoped window has NO merge rule and no session reading to merge with: a
+# session payload's `rate_limits` carries only the two account-wide windows, so
+# the probe is the only thing that can ever know this figure. `publish` therefore
+# passes it through untouched and `set` simply overwrites it.
 #
 # Both windows are merged independently by the rule above: the weekly reading
 # goes stale in exactly the same way as the 5h one, and it is the *slower* of the
@@ -3730,6 +3855,12 @@ stored7() {
   [ -f "$F" ] || { echo "-1 0 0 session"; return; }
   jq -r '"\(.seven_day.used // -1) \(.seven_day.resets_at // 0) \(.seven_day.measured_at // 0) \(.seven_day.source // "session")"' \
     "$F" 2>/dev/null || echo "-1 0 0 session"
+}
+
+storedS() {
+  [ -f "$F" ] || { echo "-1 0 0 -"; return; }
+  jq -r '"\(.weekly_scoped.used // -1) \(.weekly_scoped.resets_at // 0) \(.weekly_scoped.measured_at // 0) \(.weekly_scoped.label // "-")"' \
+    "$F" 2>/dev/null || echo "-1 0 0 -"
 }
 
 stored_probed_at() {
@@ -3780,7 +3911,8 @@ merge() {
   fi
 }
 
-# write_state <u5> <r5> <m5> <s5> <u7> <r7> <m7> <s7> <probed_at> <now>
+# write_state <u5> <r5> <m5> <s5> <u7> <r7> <m7> <s7> <probed_at> <now> \
+#             <us> <rs> <ms> <label>
 # Built from arguments, not by editing the file in place, so a corrupt file is
 # overwritten by the next write instead of wedging every terminal.
 write_state() {
@@ -3788,8 +3920,10 @@ write_state() {
   if jq -n --argjson u "$1" --argjson r "$2" --argjson m "$3" --arg s "$4" \
           --argjson u7 "$5" --argjson r7 "$6" --argjson m7 "$7" --arg s7 "$8" \
           --argjson p "$9" --argjson n "${10}" \
+          --argjson us "${11}" --argjson rs "${12}" --argjson ms "${13}" --arg ls "${14}" \
        '{five_hour:{used:$u,resets_at:$r,measured_at:$m,source:$s},
          seven_day:{used:$u7,resets_at:$r7,measured_at:$m7,source:$s7},
+         weekly_scoped:{used:$us,resets_at:$rs,measured_at:$ms,label:$ls},
          probed_at:$p, updated_at:$n}' \
        > "$tmp" 2>/dev/null; then
     mv -f "$tmp" "$F"
@@ -3804,6 +3938,9 @@ case "$1" in
     ;;
   read7)
     stored7
+    ;;
+  reads)
+    storedS
     ;;
   publish)
     now=$(date +%s)
@@ -3820,6 +3957,11 @@ case "$1" in
     old7_resets=$(printf '%s' "$old7" | cut -d' ' -f2)
     old7_meas=$(printf '%s' "$old7" | cut -d' ' -f3)
     old7_src=$(printf '%s' "$old7" | cut -d' ' -f4)
+    oldS=$(storedS)
+    oldS_used=$(printf   '%s' "$oldS" | cut -d' ' -f1)
+    oldS_resets=$(printf '%s' "$oldS" | cut -d' ' -f2)
+    oldS_meas=$(printf   '%s' "$oldS" | cut -d' ' -f3)
+    oldS_label=$(printf  '%s' "$oldS" | cut -d' ' -f4)
 
     new=$(merge "$2" "${3:-0}" "$fresh" "$old_used" "$old_resets" "$old_meas" "$old_src" "$now")
     new7=$(merge "$4" "${5:-0}" "$fresh" "$old7_used" "$old7_resets" "$old7_meas" "$old7_src" "$now")
@@ -3834,17 +3976,31 @@ case "$1" in
 
     if [ "$new $new7" != "$old $old7" ]; then
       write_state "$used" "$resets" "$meas" "$src" \
-                  "$used7" "$resets7" "$meas7" "$src7" "$(stored_probed_at)" "$now"
+                  "$used7" "$resets7" "$meas7" "$src7" "$(stored_probed_at)" "$now" \
+                  "$oldS_used" "$oldS_resets" "$oldS_meas" "$oldS_label"
     fi
-    echo "$used $resets $used7 $resets7 $meas"
+    echo "$used $resets $used7 $resets7 $meas $oldS_used $oldS_label $oldS_resets"
     ;;
   set)
     now=$(date +%s)
     old=$(stored)
     old7=$(stored7)
+    oldS=$(storedS)
     u5=$2; r5=${3:-0}; u7=$4; r7=${5:-0}
+    # The scoped triple is optional: a caller that does not know it (an older
+    # probe, a test harness) leaves the stored one alone rather than erasing it.
+    uS=${6:--}; rS=${7:-0}; lS=${8:--}
     case "$r5" in ''|*[!0-9]*) r5=0 ;; esac
     case "$r7" in ''|*[!0-9]*) r7=0 ;; esac
+    case "$rS" in ''|*[!0-9]*) rS=0 ;; esac
+    case "$lS" in ''|*[!A-Za-z0-9]*) lS=- ;; esac
+    case "$uS" in
+      ''|*[!0-9.]*) usedS=$(printf '%s' "$oldS" | cut -d' ' -f1)
+                    resetsS=$(printf '%s' "$oldS" | cut -d' ' -f2)
+                    measS=$(printf '%s' "$oldS" | cut -d' ' -f3)
+                    labelS=$(printf '%s' "$oldS" | cut -d' ' -f4) ;;
+      *)            usedS=$uS; resetsS=$rS; measS=$now; labelS=$lS ;;
+    esac
     case "$u5" in ''|*[!0-9.]*) new=$old ;; *) new="$u5 $r5 $now probe" ;; esac
     case "$u7" in ''|*[!0-9.]*) new7=$old7 ;; *) new7="$u7 $r7 $now probe" ;; esac
     used=$(printf  '%s' "$new"  | cut -d' ' -f1)
@@ -3856,11 +4012,12 @@ case "$1" in
     meas7=$(printf  '%s' "$new7" | cut -d' ' -f3)
     src7=$(printf   '%s' "$new7" | cut -d' ' -f4)
     write_state "$used" "$resets" "$meas" "$src" \
-                "$used7" "$resets7" "$meas7" "$src7" "$now" "$now"
-    echo "$used $resets $used7 $resets7 $meas"
+                "$used7" "$resets7" "$meas7" "$src7" "$now" "$now" \
+                "$usedS" "$resetsS" "$measS" "$labelS"
+    echo "$used $resets $used7 $resets7 $meas $usedS $labelS $resetsS"
     ;;
   *)
-    echo "usage: $0 {publish <u5> <r5> <u7> <r7> <fresh>|set <u5> <r5> <u7> <r7>|read|read7}" >&2
+    echo "usage: $0 {publish <u5> <r5> <u7> <r7> <fresh>|set <u5> <r5> <u7> <r7> [<us> <rs> <label>]|read|read7|reads}" >&2
     exit 64
     ;;
 esac
@@ -3906,10 +4063,16 @@ line and the gate both invoke it on their own schedule.
 # would turn one outage into a request storm.
 #
 # The OAuth token comes from the Keychain item Claude Code itself uses and is
-# never written anywhere. The weekly figure is the TIGHTEST of the account's
-# weekly caps (`limits[] | select(.group == "weekly")`: weekly_all plus any
-# per-model scoped cap), falling back to `seven_day.utilization`; the 5h figure
-# is `five_hour.utilization`.
+# never written anywhere. The 5h figure is `five_hour.utilization`.
+#
+# THE TWO WEEKLY FIGURES ARE REPORTED APART. `limits[]` holds one `weekly_all`
+# cap plus, since 2026-09, a `weekly_scoped` one per model with its own
+# allowance (Fable). This script used to hand the merge whichever was HIGHER as
+# the single weekly number, which is why the bar sat at "86% left" while /usage
+# said 92%: the figure on screen was Fable's budget wearing the account's label,
+# and nothing distinguished the two. Now `weekly_all` (falling back to
+# `seven_day.utilization`) is the weekly number, and the tightest SCOPED cap
+# travels beside it with the model's display name, for the bar's "(F14%)" chip.
 #
 #   quota-probe.sh            probe if due   (exit 0 probed, 1 failed, 2 skipped)
 #   quota-probe.sh --force    probe now, ignoring the interval (still one at a time)
@@ -3917,8 +4080,8 @@ line and the gate both invoke it on their own schedule.
 # Env: CLAUDE_QUOTA_PROBE_SECS (default 300; CLAUDE_WEEKLY_QUOTA_PROBE_SECS is an
 # accepted alias), CLAUDE_QUOTA_PROBE_FILE (the stamp),
 # CLAUDE_WEEKLY_QUOTA_PROBE_COMMAND (test hook: a command that prints
-# "u5 r5 u7 r7" -- or just "u7 r7" -- instead of calling the endpoint; resets
-# may be epochs or the endpoint's ISO form).
+# "u5 r5 u7 r7 us rs label" -- or "u5 r5 u7 r7", or just "u7 r7" -- instead of
+# calling the endpoint; resets may be epochs or the endpoint's ISO form).
 
 PROBE_SECS="${CLAUDE_QUOTA_PROBE_SECS:-${CLAUDE_WEEKLY_QUOTA_PROBE_SECS:-300}}"
 case "$PROBE_SECS" in ''|*[!0-9]*|0) PROBE_SECS=300 ;; esac
@@ -3962,9 +4125,14 @@ fetch() {
     -H 'User-Agent: claude-code/quota-probe' \
     'https://api.anthropic.com/api/oauth/usage' 2>/dev/null) || return 1
   printf '%s' "$_body" | jq -r '
-    ([.limits[]? | select(.group == "weekly" and (.percent | type) == "number")]
+    ([.limits[]? | select(.group == "weekly" and .scope == null
+                          and (.percent | type) == "number")]
       | max_by(.percent)) as $w
-    | "\(.five_hour.utilization // "-") \(.five_hour.resets_at // "-") \($w.percent // .seven_day.utilization // "-") \($w.resets_at // .seven_day.resets_at // "-")"' \
+    | ([.limits[]? | select(.group == "weekly" and .scope != null
+                            and (.percent | type) == "number")]
+      | max_by(.percent)) as $s
+    | (($s.scope.model.display_name // "") | gsub("[^A-Za-z0-9]"; "")) as $lbl
+    | "\(.five_hour.utilization // "-") \(.five_hour.resets_at // "-") \($w.percent // .seven_day.utilization // "-") \($w.resets_at // .seven_day.resets_at // "-") \($s.percent // "-") \($s.resets_at // "-") \(if $lbl == "" then "-" else $lbl end)"' \
     2>/dev/null
 }
 
@@ -3995,9 +4163,10 @@ printf '%s pending' "$now" > "$STAMP"
 # shellcheck disable=SC2046  # word-splitting the four fields is the point
 set -- $(fetch 2>/dev/null)
 case $# in
-  2) u5=-; r5=-; u7=$1; r7=$2 ;;
-  4) u5=$1; r5=$2; u7=$3; r7=$4 ;;
-  *) u5=-; r5=-; u7=-; r7=- ;;
+  2) u5=-; r5=-; u7=$1; r7=$2; us=-; rs=-; lbl=- ;;
+  4) u5=$1; r5=$2; u7=$3; r7=$4; us=-; rs=-; lbl=- ;;
+  7) u5=$1; r5=$2; u7=$3; r7=$4; us=$5; rs=$6; lbl=$7 ;;
+  *) u5=-; r5=-; u7=-; r7=-; us=-; rs=-; lbl=- ;;
 esac
 case "$u7" in
   ''|*[!0-9.]*)
@@ -4007,16 +4176,21 @@ case "$u7" in
     ;;
 esac
 case "$u5" in ''|*[!0-9.]*) u5=-1 ;; esac
+# An account with no scoped cap this week is not an error -- the window is left
+# as "-", which quota-state.sh reads as "keep whatever you have" rather than
+# "the cap is zero".
+case "$us" in ''|*[!0-9.]*) us=- ;; esac
 r5=$(to_epoch "$r5")
 r7=$(to_epoch "$r7")
-if ! "$STATE" set "$u5" "$r5" "$u7" "$r7" >/dev/null 2>&1; then
+rs=$(to_epoch "$rs")
+if ! "$STATE" set "$u5" "$r5" "$u7" "$r7" "$us" "$rs" "$lbl" >/dev/null 2>&1; then
   printf '%s failed' "$now" > "$STAMP"
   printf '%s probe-failed (quota-state.sh set)\n' "$(date '+%Y-%m-%dT%H:%M:%S')" >> "$LOG"
   exit 1
 fi
 printf '%s ok' "$now" > "$STAMP"
-printf '%s probe five_hour=%s%% seven_day=%s%%\n' \
-  "$(date '+%Y-%m-%dT%H:%M:%S')" "$u5" "$u7" >> "$LOG"
+printf '%s probe five_hour=%s%% seven_day=%s%% %s=%s%%\n' \
+  "$(date '+%Y-%m-%dT%H:%M:%S')" "$u5" "$u7" "$lbl" "$us" >> "$LOG"
 exit 0
 ```
 
@@ -4033,9 +4207,16 @@ installs a script nothing ever calls.
 
 ```sh
 #!/bin/sh
-# Park this terminal when the 5h quota is nearly gone or the weekly quota has
+# Park this terminal when the 5h quota is nearly gone or a weekly quota has
 # 1% or less left, but only after the account's live usage endpoint confirms it.
-# Both windows wake at the next probe, so a plan change releases parked work.
+# Every window wakes at the next probe, so a plan change releases parked work.
+#
+# "A weekly quota" is two of them: the account-wide one and the tightest
+# per-model scoped cap (Fable's, see quota-state.sh). They are displayed apart
+# -- the bar's weekly cell and its "(F14%)" chip -- but either one hitting the
+# floor blocks the requests it governs, so either one parks the terminal. The
+# window recorded in the park marker says which, and the bar hangs the 💤 on
+# the figure that caused it.
 #
 # Wired to UserPromptSubmit, PreToolUse and PostToolUse: those are the three
 # points immediately before an API request. PostToolUse is the tightest (the
@@ -4089,6 +4270,10 @@ while :; do
   resets7=$(printf '%s' "$state7" | cut -d' ' -f2)
   meas7=$(printf '%s' "$state7" | cut -d' ' -f3)
   source7=$(printf '%s' "$state7" | cut -d' ' -f4)
+  stateS=$("$HOME/.claude/hooks/quota-state.sh" reads 2>/dev/null)
+  usedS=$(printf   '%s' "$stateS" | cut -d' ' -f1)
+  resetsS=$(printf '%s' "$stateS" | cut -d' ' -f2)
+  measS=$(printf   '%s' "$stateS" | cut -d' ' -f3)
   now=$(date +%s)
 
   # Preserve the existing 5h decision exactly: park only on confirmed data.
@@ -4117,7 +4302,19 @@ while :; do
       ;;
   esac
 
-  [ "$go" = 1 ] || [ "$go7" = 1 ] || exit 0
+  # The scoped cap is probe-only -- nothing else can write it -- so there is no
+  # `source` to check here, only that the reading is not left over from a window
+  # that has already reset.
+  goS=0
+  case "$usedS" in
+    ''|-1|*[!0-9.]*) ;;
+    *)
+      goS=$(awk -v u="$usedS" -v t="$WEEK_THRESH" -v r="$resetsS" -v n="$now" \
+        'BEGIN{ print ((100 - u) <= t && r > n) ? 1 : 0 }')
+      ;;
+  esac
+
+  [ "$go" = 1 ] || [ "$go7" = 1 ] || [ "$goS" = 1 ] || exit 0
 
   if [ "$verified" = 0 ]; then
     # A failed or concurrent probe is not proof of exhaustion. Let Claude make
@@ -4135,6 +4332,9 @@ while :; do
   if [ "$go7" = 1 ]; then
     [ "$source7" = probe ] && [ "$((now - meas7))" -le 30 ] || exit 0
   fi
+  if [ "$goS" = 1 ]; then
+    [ "$((now - measS))" -le 30 ] 2>/dev/null || exit 0
+  fi
 
   probe_last=$(sed -n '1p' "$PROBE_STAMP" 2>/dev/null | cut -d' ' -f1)
   case "$probe_last" in ''|*[!0-9]*) probe_last=$now ;; esac
@@ -4143,6 +4343,10 @@ while :; do
     window=seven_day
     used=$used7
     reset_wake=$((resets7 + BUFFER + jitter))
+  elif [ "$goS" = 1 ]; then
+    window=weekly_scoped
+    used=$usedS
+    reset_wake=$((resetsS + BUFFER + jitter))
   else
     window=five_hour
     reset_wake=$((resets + BUFFER + jitter))

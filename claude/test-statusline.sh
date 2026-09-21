@@ -171,6 +171,51 @@ out=$(printf '%s' "$payload" | env -u CLAUDE_QUOTA_PROBE_SECS -u CLAUDE_WEEKLY_Q
 assert_contains "probe: an aged-out probe reading yields to value order again" "$out" "6% /"
 rm -f "$HOME/.claude/hooks/quota-state.sh" "$HOME/.claude/quota.json"
 
+# --- Case 6: the per-model weekly cap rides beside the account weekly -------
+# An account can hold two weekly budgets: the account-wide one and a per-model
+# cap with its own allowance (Fable's, since 2026-09). quota-probe.sh used to
+# write whichever was TIGHTER into `seven_day`, so on 2026-09-21 the bar read
+# "86% left" while /usage said 92% -- Fable's budget wearing the account's
+# label, with nothing on screen to tell them apart. The account figure is the
+# weekly number now; the scoped cap is a chip carrying the model's initial.
+STATE="$PWD/claude/hooks/quota-state.sh"
+mkdir -p "$HOME/.claude/hooks"
+ln -s "$STATE" "$HOME/.claude/hooks/quota-state.sh"
+session="statusline-test-weekly-scoped"
+rm -f "/tmp/claude-statusline-rl-$session.txt"
+payload=$(cat <<JSON
+{"session_id":"$session","model":{"display_name":"Claude Opus"},
+ "context_window":{},
+ "rate_limits":{"five_hour":{"used_percentage":40,"resets_at":$reset},
+                "seven_day":{"used_percentage":8,"resets_at":$week_reset}}}
+JSON
+)
+"$STATE" set -1 0 8 "$week_reset" 14 "$week_reset" Fable >/dev/null
+out=$(printf '%s' "$payload" | sh "$SCRIPT")
+assert_contains "scoped cap: the weekly figure is the ACCOUNT's"    "$out" "92%"
+assert_contains "scoped cap: the model's own budget rides beside it" "$out" "(F86%)"
+
+# The chip belongs to the model, so the park it causes belongs to the chip --
+# hanging the glyph on the account figure would name the wrong budget.
+mkdir -p "$HOME/.claude/quota-park"
+printf '%s weekly_scoped' "$((week_reset + 12))" > "$HOME/.claude/quota-park/$session"
+"$STATE" set -1 0 8 "$week_reset" 100 "$week_reset" Fable >/dev/null
+out=$(printf '%s' "$payload" | sh "$SCRIPT")
+assert_contains "scoped cap: the park glyph sits inside the chip" "$out" "F0%💤"
+assert_not_contains "scoped cap: the account weekly stays awake"  "$out" "92%💤"
+rm -f "$HOME/.claude/quota-park/$session"
+
+# A reading whose weekly window has already turned over is last week's budget.
+"$STATE" set -1 0 8 "$week_reset" 14 "$((now - 60))" Fable >/dev/null
+out=$(printf '%s' "$payload" | sh "$SCRIPT")
+assert_not_contains "scoped cap: a reading past its reset is dropped" "$out" "(F"
+
+# An account with no per-model cap shows exactly the cell it always had.
+rm -f "$HOME/.claude/quota.json"
+out=$(printf '%s' "$payload" | sh "$SCRIPT")
+assert_not_contains "scoped cap: no cap, no chip" "$out" "(F"
+rm -f "$HOME/.claude/hooks/quota-state.sh" "$HOME/.claude/quota.json"
+
 # --- Case: subagents in flight ----------------------------------------------
 # Builds a session directory shaped like the one Claude Code writes -- a parent
 # transcript plus <sid>/subagents/agent-<id>.{meta.json,jsonl} -- and checks the

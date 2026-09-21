@@ -75,11 +75,18 @@ assert_cadence() {
   assert_between "$1" "$2" "$((launch_at + $3))" "$((marked_at + $4))"
 }
 
+# write_state <u5> <r5> <m5> <u7> <r7> <m7> [<us> <rs> <ms>]
+# Omitting the scoped triple writes a file without a `weekly_scoped` block --
+# an account with no per-model cap, and the shape every reading had before
+# 2026-09-21. The readers must treat that as "no such window", not as zero.
 write_state() {
   jq -n --argjson u5 "$1" --argjson r5 "$2" --argjson m5 "$3" \
         --argjson u7 "$4" --argjson r7 "$5" --argjson m7 "$6" \
+        --argjson us "${7:--1}" --argjson rs "${8:-0}" --argjson ms "${9:-0}" \
     '{five_hour:{used:$u5,resets_at:$r5,measured_at:$m5},
-      seven_day:{used:$u7,resets_at:$r7,measured_at:$m7}}' \
+      seven_day:{used:$u7,resets_at:$r7,measured_at:$m7}}
+     + (if $us < 0 then {} else
+          {weekly_scoped:{used:$us,resets_at:$rs,measured_at:$ms,label:"Fable"}} end)' \
     > "$HOME/.claude/quota.json"
 }
 
@@ -307,6 +314,51 @@ else
   fail=$((fail + 1)); printf 'FAIL  weekly: a concurrent hook follows the in-flight probe result\n'
 fi
 stop_gate
+
+# --- The per-model weekly cap parks too ------------------------------------
+# An account can be nowhere near its account-wide weekly limit and still be out
+# of budget on the model in play (Fable carries its own weekly allowance). That
+# cap governs real requests, so it has to stop them; the marker names it, which
+# is how the bar knows to hang the 💤 on the "(F0%)" chip rather than on the
+# healthy account figure beside it.
+scoped_probe="$TMP/scoped-probe.sh"
+printf '#!/bin/sh\nprintf "called\\n" >> "$CLAUDE_TEST_PROBE_CALLS"\nprintf "%%s %%s %%s %%s %%s %%s %%s\\n" -1 0 8 "$CLAUDE_TEST_PROBE_RESET" "$CLAUDE_TEST_PROBE_SCOPED" "$CLAUDE_TEST_PROBE_RESET" Fable\n' > "$scoped_probe"
+chmod +x "$scoped_probe"
+
+session=quota-gate-test-scoped-exhausted
+probe_calls="$TMP/scoped.calls"
+write_state 88 "$five_reset" "$now" 8 "$week_reset" "$now" 100 "$week_reset" "$now"
+launch_at=$(date +%s)
+printf '{"session_id":"%s"}' "$session" \
+  | CLAUDE_QUOTA_JITTER=0 CLAUDE_QUOTA_WAKE_BUFFER=0 \
+      CLAUDE_WEEKLY_QUOTA_PROBE_SECS=3600 \
+      CLAUDE_QUOTA_PROBE_FILE="$TMP/scoped-probe.stamp" \
+      CLAUDE_WEEKLY_QUOTA_PROBE_COMMAND="$scoped_probe" \
+      CLAUDE_TEST_PROBE_CALLS="$probe_calls" \
+      CLAUDE_TEST_PROBE_SCOPED=100 CLAUDE_TEST_PROBE_RESET="$week_reset" sh "$GATE" \
+      >/dev/null 2>&1 &
+gate_pid=$!
+marker="$HOME/.claude/quota-park/$session"
+wait_for_marker "$marker"
+contents=$(sed -n '1p' "$marker" 2>/dev/null)
+scoped_window=$(printf '%s' "$contents" | cut -d' ' -f2)
+assert_eq "scoped: an exhausted per-model cap parks on its own window" \
+  "$scoped_window" "weekly_scoped"
+assert_eq "scoped: the account weekly stays out of it" \
+  "$("$STATE" read7 | cut -d' ' -f1)" "8"
+stop_gate
+
+# ...and a per-model cap with room left never parks anything, however low the
+# account weekly is allowed to look next to it.
+session=quota-gate-test-scoped-healthy
+write_state 88 "$five_reset" "$now" 8 "$week_reset" "$now" 86 "$week_reset" "$now"
+printf '{"session_id":"%s"}' "$session" \
+  | CLAUDE_QUOTA_JITTER=0 CLAUDE_QUOTA_WAKE_BUFFER=0 sh "$GATE"
+if [ ! -f "$HOME/.claude/quota-park/$session" ]; then
+  pass=$((pass + 1)); printf 'ok    scoped: fourteen percent used on the model cap stays awake\n'
+else
+  fail=$((fail + 1)); printf 'FAIL  scoped: fourteen percent used on the model cap stays awake\n'
+fi
 
 echo
 echo "$pass passed, $fail failed"

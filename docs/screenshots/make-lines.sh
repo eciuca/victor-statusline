@@ -70,7 +70,25 @@ shoot() {
   printf '%s' "$out" > "$OUT/$3.ansi"
   echo "warning: $3 never rendered a frame containing '$want'" >&2
 }
+# The "(F22%)" chip is fed from ~/.claude/quota.json and never from the payload
+# -- a session's `rate_limits` carries the two account-wide windows and nothing
+# else, so only quota-probe.sh can ever know a per-model cap. The subscription
+# shot therefore needs a state file. It repeats the payload's own 12%/30% so the
+# merge changes nothing else in the picture, and carries source=probe with
+# measured_at=now so those readings are authoritative and unmarked.
+#
+# Torn down immediately afterwards: the API-key terminal shares this $HOME, and
+# the merge would happily hand it the stored figures -- drawing the two quota
+# segments the very next picture exists to show ABSENT.
+mkdir -p "$HOME/.claude/hooks"
+ln -sf "$REPO/claude/hooks/quota-state.sh" "$HOME/.claude/hooks/quota-state.sh"
+jq -n --argjson rs "$rs" --argjson wr "$wr" --argjson n "$now" \
+  '{five_hour:{used:12,resets_at:$rs,measured_at:$n,source:"probe"},
+    seven_day:{used:30,resets_at:$wr,measured_at:$n,source:"probe"},
+    weekly_scoped:{used:78,resets_at:$wr,measured_at:$n,label:"Fable"},
+    probed_at:$n, updated_at:$n}' > "$HOME/.claude/quota.json"
 shoot sub sub claude-subscription
+rm -rf "$HOME/.claude/hooks" "$HOME/.claude/quota.json"
 shoot api api claude-apikey
 
 # --- the same bar with a fan-out in flight -------------------------------

@@ -60,7 +60,8 @@
 # than the race does.
 #
 #   quota-state.sh publish <u5> <r5> <u7> <r7> <fresh>
-#                                       -> echoes merged "u5 r5 u7 r7 measured5"
+#                                       -> echoes merged
+#                                          "u5 r5 u7 r7 measured5 usScoped labelScoped rScoped"
 #   quota-state.sh set <u5> <r5> <u7> <r7>
 #                                       -> the probe's write: replaces both windows
 #                                          unconditionally, measured_at=now, source=probe,
@@ -70,6 +71,22 @@
 #                                          Echoes the same line as publish.
 #   quota-state.sh read                 -> echoes stored "u5 r5 m5 source"  (five_hour)
 #   quota-state.sh read7                -> echoes stored "u7 r7 m7 source"  (seven_day)
+#   quota-state.sh reads                -> echoes stored "us rs ms label" (weekly_scoped)
+#
+# THE THIRD WINDOW. An account can carry more than one weekly cap: `weekly_all`
+# plus a `weekly_scoped` one per model with its own allowance (Fable has had one
+# since 2026-09). They are different budgets and only one of them is yours to
+# spend on the model in play, so they are stored apart -- `seven_day` is always
+# the ACCOUNT-WIDE weekly, and `weekly_scoped` holds the tightest per-model cap
+# with the model's name in `label` (the bar renders it as "(F14%)"). Collapsing
+# the two into one field, which is what the probe used to do by writing whichever
+# was higher into `seven_day`, made the bar read 14% while /usage said 8% and
+# gave no way to tell which budget the number belonged to.
+#
+# The scoped window has NO merge rule and no session reading to merge with: a
+# session payload's `rate_limits` carries only the two account-wide windows, so
+# the probe is the only thing that can ever know this figure. `publish` therefore
+# passes it through untouched and `set` simply overwrites it.
 #
 # Both windows are merged independently by the rule above: the weekly reading
 # goes stale in exactly the same way as the 5h one, and it is the *slower* of the
@@ -100,6 +117,12 @@ stored7() {
   [ -f "$F" ] || { echo "-1 0 0 session"; return; }
   jq -r '"\(.seven_day.used // -1) \(.seven_day.resets_at // 0) \(.seven_day.measured_at // 0) \(.seven_day.source // "session")"' \
     "$F" 2>/dev/null || echo "-1 0 0 session"
+}
+
+storedS() {
+  [ -f "$F" ] || { echo "-1 0 0 -"; return; }
+  jq -r '"\(.weekly_scoped.used // -1) \(.weekly_scoped.resets_at // 0) \(.weekly_scoped.measured_at // 0) \(.weekly_scoped.label // "-")"' \
+    "$F" 2>/dev/null || echo "-1 0 0 -"
 }
 
 stored_probed_at() {
@@ -150,7 +173,8 @@ merge() {
   fi
 }
 
-# write_state <u5> <r5> <m5> <s5> <u7> <r7> <m7> <s7> <probed_at> <now>
+# write_state <u5> <r5> <m5> <s5> <u7> <r7> <m7> <s7> <probed_at> <now> \
+#             <us> <rs> <ms> <label>
 # Built from arguments, not by editing the file in place, so a corrupt file is
 # overwritten by the next write instead of wedging every terminal.
 write_state() {
@@ -158,8 +182,10 @@ write_state() {
   if jq -n --argjson u "$1" --argjson r "$2" --argjson m "$3" --arg s "$4" \
           --argjson u7 "$5" --argjson r7 "$6" --argjson m7 "$7" --arg s7 "$8" \
           --argjson p "$9" --argjson n "${10}" \
+          --argjson us "${11}" --argjson rs "${12}" --argjson ms "${13}" --arg ls "${14}" \
        '{five_hour:{used:$u,resets_at:$r,measured_at:$m,source:$s},
          seven_day:{used:$u7,resets_at:$r7,measured_at:$m7,source:$s7},
+         weekly_scoped:{used:$us,resets_at:$rs,measured_at:$ms,label:$ls},
          probed_at:$p, updated_at:$n}' \
        > "$tmp" 2>/dev/null; then
     mv -f "$tmp" "$F"
@@ -174,6 +200,9 @@ case "$1" in
     ;;
   read7)
     stored7
+    ;;
+  reads)
+    storedS
     ;;
   publish)
     now=$(date +%s)
@@ -190,6 +219,11 @@ case "$1" in
     old7_resets=$(printf '%s' "$old7" | cut -d' ' -f2)
     old7_meas=$(printf '%s' "$old7" | cut -d' ' -f3)
     old7_src=$(printf '%s' "$old7" | cut -d' ' -f4)
+    oldS=$(storedS)
+    oldS_used=$(printf   '%s' "$oldS" | cut -d' ' -f1)
+    oldS_resets=$(printf '%s' "$oldS" | cut -d' ' -f2)
+    oldS_meas=$(printf   '%s' "$oldS" | cut -d' ' -f3)
+    oldS_label=$(printf  '%s' "$oldS" | cut -d' ' -f4)
 
     new=$(merge "$2" "${3:-0}" "$fresh" "$old_used" "$old_resets" "$old_meas" "$old_src" "$now")
     new7=$(merge "$4" "${5:-0}" "$fresh" "$old7_used" "$old7_resets" "$old7_meas" "$old7_src" "$now")
@@ -204,17 +238,31 @@ case "$1" in
 
     if [ "$new $new7" != "$old $old7" ]; then
       write_state "$used" "$resets" "$meas" "$src" \
-                  "$used7" "$resets7" "$meas7" "$src7" "$(stored_probed_at)" "$now"
+                  "$used7" "$resets7" "$meas7" "$src7" "$(stored_probed_at)" "$now" \
+                  "$oldS_used" "$oldS_resets" "$oldS_meas" "$oldS_label"
     fi
-    echo "$used $resets $used7 $resets7 $meas"
+    echo "$used $resets $used7 $resets7 $meas $oldS_used $oldS_label $oldS_resets"
     ;;
   set)
     now=$(date +%s)
     old=$(stored)
     old7=$(stored7)
+    oldS=$(storedS)
     u5=$2; r5=${3:-0}; u7=$4; r7=${5:-0}
+    # The scoped triple is optional: a caller that does not know it (an older
+    # probe, a test harness) leaves the stored one alone rather than erasing it.
+    uS=${6:--}; rS=${7:-0}; lS=${8:--}
     case "$r5" in ''|*[!0-9]*) r5=0 ;; esac
     case "$r7" in ''|*[!0-9]*) r7=0 ;; esac
+    case "$rS" in ''|*[!0-9]*) rS=0 ;; esac
+    case "$lS" in ''|*[!A-Za-z0-9]*) lS=- ;; esac
+    case "$uS" in
+      ''|*[!0-9.]*) usedS=$(printf '%s' "$oldS" | cut -d' ' -f1)
+                    resetsS=$(printf '%s' "$oldS" | cut -d' ' -f2)
+                    measS=$(printf '%s' "$oldS" | cut -d' ' -f3)
+                    labelS=$(printf '%s' "$oldS" | cut -d' ' -f4) ;;
+      *)            usedS=$uS; resetsS=$rS; measS=$now; labelS=$lS ;;
+    esac
     case "$u5" in ''|*[!0-9.]*) new=$old ;; *) new="$u5 $r5 $now probe" ;; esac
     case "$u7" in ''|*[!0-9.]*) new7=$old7 ;; *) new7="$u7 $r7 $now probe" ;; esac
     used=$(printf  '%s' "$new"  | cut -d' ' -f1)
@@ -226,11 +274,12 @@ case "$1" in
     meas7=$(printf  '%s' "$new7" | cut -d' ' -f3)
     src7=$(printf   '%s' "$new7" | cut -d' ' -f4)
     write_state "$used" "$resets" "$meas" "$src" \
-                "$used7" "$resets7" "$meas7" "$src7" "$now" "$now"
-    echo "$used $resets $used7 $resets7 $meas"
+                "$used7" "$resets7" "$meas7" "$src7" "$now" "$now" \
+                "$usedS" "$resetsS" "$measS" "$labelS"
+    echo "$used $resets $used7 $resets7 $meas $usedS $labelS $resetsS"
     ;;
   *)
-    echo "usage: $0 {publish <u5> <r5> <u7> <r7> <fresh>|set <u5> <r5> <u7> <r7>|read|read7}" >&2
+    echo "usage: $0 {publish <u5> <r5> <u7> <r7> <fresh>|set <u5> <r5> <u7> <r7> [<us> <rs> <label>]|read|read7|reads}" >&2
     exit 64
     ;;
 esac

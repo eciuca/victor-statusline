@@ -23,10 +23,16 @@
 # would turn one outage into a request storm.
 #
 # The OAuth token comes from the Keychain item Claude Code itself uses and is
-# never written anywhere. The weekly figure is the TIGHTEST of the account's
-# weekly caps (`limits[] | select(.group == "weekly")`: weekly_all plus any
-# per-model scoped cap), falling back to `seven_day.utilization`; the 5h figure
-# is `five_hour.utilization`.
+# never written anywhere. The 5h figure is `five_hour.utilization`.
+#
+# THE TWO WEEKLY FIGURES ARE REPORTED APART. `limits[]` holds one `weekly_all`
+# cap plus, since 2026-09, a `weekly_scoped` one per model with its own
+# allowance (Fable). This script used to hand the merge whichever was HIGHER as
+# the single weekly number, which is why the bar sat at "86% left" while /usage
+# said 92%: the figure on screen was Fable's budget wearing the account's label,
+# and nothing distinguished the two. Now `weekly_all` (falling back to
+# `seven_day.utilization`) is the weekly number, and the tightest SCOPED cap
+# travels beside it with the model's display name, for the bar's "(F14%)" chip.
 #
 #   quota-probe.sh            probe if due   (exit 0 probed, 1 failed, 2 skipped)
 #   quota-probe.sh --force    probe now, ignoring the interval (still one at a time)
@@ -34,8 +40,8 @@
 # Env: CLAUDE_QUOTA_PROBE_SECS (default 300; CLAUDE_WEEKLY_QUOTA_PROBE_SECS is an
 # accepted alias), CLAUDE_QUOTA_PROBE_FILE (the stamp),
 # CLAUDE_WEEKLY_QUOTA_PROBE_COMMAND (test hook: a command that prints
-# "u5 r5 u7 r7" -- or just "u7 r7" -- instead of calling the endpoint; resets
-# may be epochs or the endpoint's ISO form).
+# "u5 r5 u7 r7 us rs label" -- or "u5 r5 u7 r7", or just "u7 r7" -- instead of
+# calling the endpoint; resets may be epochs or the endpoint's ISO form).
 
 PROBE_SECS="${CLAUDE_QUOTA_PROBE_SECS:-${CLAUDE_WEEKLY_QUOTA_PROBE_SECS:-300}}"
 case "$PROBE_SECS" in ''|*[!0-9]*|0) PROBE_SECS=300 ;; esac
@@ -79,9 +85,14 @@ fetch() {
     -H 'User-Agent: claude-code/quota-probe' \
     'https://api.anthropic.com/api/oauth/usage' 2>/dev/null) || return 1
   printf '%s' "$_body" | jq -r '
-    ([.limits[]? | select(.group == "weekly" and (.percent | type) == "number")]
+    ([.limits[]? | select(.group == "weekly" and .scope == null
+                          and (.percent | type) == "number")]
       | max_by(.percent)) as $w
-    | "\(.five_hour.utilization // "-") \(.five_hour.resets_at // "-") \($w.percent // .seven_day.utilization // "-") \($w.resets_at // .seven_day.resets_at // "-")"' \
+    | ([.limits[]? | select(.group == "weekly" and .scope != null
+                            and (.percent | type) == "number")]
+      | max_by(.percent)) as $s
+    | (($s.scope.model.display_name // "") | gsub("[^A-Za-z0-9]"; "")) as $lbl
+    | "\(.five_hour.utilization // "-") \(.five_hour.resets_at // "-") \($w.percent // .seven_day.utilization // "-") \($w.resets_at // .seven_day.resets_at // "-") \($s.percent // "-") \($s.resets_at // "-") \(if $lbl == "" then "-" else $lbl end)"' \
     2>/dev/null
 }
 
@@ -112,9 +123,10 @@ printf '%s pending' "$now" > "$STAMP"
 # shellcheck disable=SC2046  # word-splitting the four fields is the point
 set -- $(fetch 2>/dev/null)
 case $# in
-  2) u5=-; r5=-; u7=$1; r7=$2 ;;
-  4) u5=$1; r5=$2; u7=$3; r7=$4 ;;
-  *) u5=-; r5=-; u7=-; r7=- ;;
+  2) u5=-; r5=-; u7=$1; r7=$2; us=-; rs=-; lbl=- ;;
+  4) u5=$1; r5=$2; u7=$3; r7=$4; us=-; rs=-; lbl=- ;;
+  7) u5=$1; r5=$2; u7=$3; r7=$4; us=$5; rs=$6; lbl=$7 ;;
+  *) u5=-; r5=-; u7=-; r7=-; us=-; rs=-; lbl=- ;;
 esac
 case "$u7" in
   ''|*[!0-9.]*)
@@ -124,14 +136,19 @@ case "$u7" in
     ;;
 esac
 case "$u5" in ''|*[!0-9.]*) u5=-1 ;; esac
+# An account with no scoped cap this week is not an error -- the window is left
+# as "-", which quota-state.sh reads as "keep whatever you have" rather than
+# "the cap is zero".
+case "$us" in ''|*[!0-9.]*) us=- ;; esac
 r5=$(to_epoch "$r5")
 r7=$(to_epoch "$r7")
-if ! "$STATE" set "$u5" "$r5" "$u7" "$r7" >/dev/null 2>&1; then
+rs=$(to_epoch "$rs")
+if ! "$STATE" set "$u5" "$r5" "$u7" "$r7" "$us" "$rs" "$lbl" >/dev/null 2>&1; then
   printf '%s failed' "$now" > "$STAMP"
   printf '%s probe-failed (quota-state.sh set)\n' "$(date '+%Y-%m-%dT%H:%M:%S')" >> "$LOG"
   exit 1
 fi
 printf '%s ok' "$now" > "$STAMP"
-printf '%s probe five_hour=%s%% seven_day=%s%%\n' \
-  "$(date '+%Y-%m-%dT%H:%M:%S')" "$u5" "$u7" >> "$LOG"
+printf '%s probe five_hour=%s%% seven_day=%s%% %s=%s%%\n' \
+  "$(date '+%Y-%m-%dT%H:%M:%S')" "$u5" "$u7" "$lbl" "$us" >> "$LOG"
 exit 0
