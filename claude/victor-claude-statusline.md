@@ -1069,7 +1069,7 @@ the pace is **joined to it by an `=`**, with no spaces, see below.
 |-------|---------|--------|
 | `+24=` | pace: **percentage points** off a straight line, `elapsed% − used%`; joined by `=` to the figure it qualifies, unspaced; **absent when it is 0** (see below) | derived |
 | `70%` | quota remaining this week, **account-wide** = `100 − used%` | `.rate_limits.seven_day.used_percentage` |
-| `(F22%)` | the same week for **one model**, when the account carries a scoped cap; absent otherwise | `quota.json` `.weekly_scoped`, written only by `quota-probe.sh` |
+| `(F22%)` | the same week for **one model**, shown only while **that model is the one in play** (`Fable …` here); absent otherwise | `quota.json` `.weekly_scoped`, written only by `quota-probe.sh` |
 | `1d1h` | **working** time until the weekly window resets (weekends excluded) | `.rate_limits.seven_day.resets_at` |
 
 Pace **leads** the absolute figure, mirroring the 5h arrow: the signed number is
@@ -1208,6 +1208,20 @@ the `=`; the chip is always a model. Three columns buy the distinction outright.
   dropped rather than shown: that is last week's budget.
 - **Absent when there is no cap.** An account with a single weekly limit gets
   exactly the cell it always had.
+- **Absent while you are on another model.** Fable's cap is a number about
+  Fable: on an Opus session it is a budget the turn cannot spend and cannot
+  exhaust, so it is three columns of someone else's business in the cell the
+  eye goes to for "how much room do I have" — and a figure that never moves
+  while you watch it teaches the eye to skip the cell, taking the account
+  weekly glued beside it along with it. The chip is therefore scoped to the
+  session the way the cap is scoped to the model: it appears the moment this
+  terminal switches to that model, which is the same moment it starts
+  describing this terminal. The match is `display_name` against the endpoint's
+  `scope.model.display_name`, case-folded, so a cap on any other model follows
+  the same rule without a second line of code.
+  The one exception is a **park** on this window (below): there the cap is the
+  reason nothing is running at all, so it stays readable whatever model happens
+  to be selected while you wait it out.
 
 The colour thresholds are the weekly figure's (orange under 15%, red under 5%),
 and a park caused by this cap puts its `💤` **inside the brackets** — hanging it
@@ -2954,13 +2968,40 @@ if [ -n "$week" ]; then
   # the cap, so an account with no scoped weekly shows the weekly cell it always
   # had.
   wchip=""
+  # --- ...and only while that model is the one in play
+  # The cap is a number about Fable. On an Opus session it is a budget this
+  # turn cannot spend and cannot exhaust: three columns of someone else's
+  # business parked in the cell the eye goes to for "how much room do I have",
+  # and a figure that never moves while you watch it teaches the eye to skip
+  # the cell -- taking the account weekly glued beside it along with it. So the
+  # chip is scoped to the session the way the cap is scoped to the model: it
+  # appears the moment this terminal switches to that model, which is the same
+  # moment it starts describing this terminal.
+  # The one exception is a park on this very window: there the cap is the
+  # reason nothing is running at all, so it has to stay readable whatever model
+  # happens to be selected while you wait it out.
+  wscoped_mine=""
+  case "$wscoped_label" in
+    ''|-) ;;
+    *)
+      # Matched on the UNTOUCHED display name (§the model cell rewrites $model)
+      # and case-folded both ways, because the label is the endpoint's
+      # `scope.model.display_name` and nothing promises the two spell the
+      # family with the same capitals.
+      mlc=$(printf '%s' "$model_name" | tr '[:upper:]' '[:lower:]')
+      slc=$(printf '%s' "$wscoped_label" | tr '[:upper:]' '[:lower:]')
+      case "$mlc" in *"$slc"*) wscoped_mine=1 ;; esac
+      ;;
+  esac
+  [ "$park_window" = weekly_scoped ] && wscoped_mine=1
   case "$wscoped" in
     ''|-|-1|*[!0-9.]*) ;;
     *)
       # A stored reading whose window has already turned over is last week's
       # budget; drop it rather than show a figure the account no longer holds.
-      if [ -z "$wscoped_reset" ] || [ "$wscoped_reset" = 0 ] \
-         || [ "$wscoped_reset" -gt "$(date +%s)" ] 2>/dev/null; then
+      if [ -n "$wscoped_mine" ] \
+         && { [ -z "$wscoped_reset" ] || [ "$wscoped_reset" = 0 ] \
+              || [ "$wscoped_reset" -gt "$(date +%s)" ] 2>/dev/null; }; then
         case "$wscoped_label" in
           ''|-) ;;
           *)

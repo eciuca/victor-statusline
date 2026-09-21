@@ -92,13 +92,15 @@ GROUPS = {"model": "#7aa2f7", "5h": "#9ece6a", "spend": "#e0af68",
           "loc": "#bb9af7", "week": "#7dcfff"}
 
 CLAUDE_MODEL = [
-    (r"Opus 5xh", "model",
+    # Alternation, not a fixed name: the subscription shot runs on Fable (only
+    # there is the per-model chip drawn) and the rest on Opus.
+    (r"(?:Opus 5|Fable 5\.1)xh", "model",
      "model display name plus the reasoning effort, abbreviated to one or two "
      "lower-case letters and glued straight on: <b>l</b>ow, <b>m</b>edium, "
      "<b>h</b>igh, <b>xh</b>igh, <b>max</b>."),
     (r"\d+K(?= )", "model",
      "context tokens in play. Blue while healthy, blinking when it is not. On a 1M "
-     "Opus window the denominator is dropped — <i>330K out of a window you already "
+     "Opus or Fable window the denominator is dropped — <i>330K out of a window you already "
      "know is 1M</i> is the ratio, and a second unit would only restate it; smaller "
      "windows print <code>used/size • N%</code>, orange ≥65%, red ≥95%."),
 ]
@@ -159,7 +161,9 @@ SPECS = [
              "(<code>F</code> = Fable) — the letter only has to disambiguate against the "
              "figure it is glued to. Bracketed rather than welded with <code>=</code>, "
              "because this is a <b>different budget</b>, not another view of the one "
-             "before it. Absent on an account with no scoped cap."),
+             "before it. Absent on an account with no scoped cap, and absent while "
+             "you are on <b>another model</b>: a budget this session cannot spend is "
+             "three columns of someone else&#39;s business."),
             # The `wd` half is optional: the field drops units it does not need,
             # so late on a Friday it is a bare "13h". Anchored to the end of the
             # line because a bare \d+h would otherwise match inside "3h19".

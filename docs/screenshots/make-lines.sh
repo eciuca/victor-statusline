@@ -36,7 +36,7 @@ now=$(date +%s); rs=$((now + 12000)); wr=$((now + 220000))
 # Same session in both cases; the only difference is that a subscription payload
 # carries `rate_limits` and an API-key one does not -- which is exactly the
 # difference the two pictures are there to show.
-sub() { printf '{"session_id":"shot-sub","model":{"display_name":"Opus 5 (1M context)"},"effort":{"level":"xhigh"},"context_window":{"used_percentage":5,"context_window_size":1000000},"cost":{"total_cost_usd":%s},"workspace":{"current_dir":"'"$DEMO"'"},"rate_limits":{"five_hour":{"used_percentage":12,"resets_at":'"$rs"'},"seven_day":{"used_percentage":30,"resets_at":'"$wr"'}}}' "$1"; }
+sub() { printf '{"session_id":"shot-sub","model":{"display_name":"Fable 5.1 (1M context)"},"effort":{"level":"xhigh"},"context_window":{"used_percentage":5,"context_window_size":1000000},"cost":{"total_cost_usd":%s},"workspace":{"current_dir":"'"$DEMO"'"},"rate_limits":{"five_hour":{"used_percentage":12,"resets_at":'"$rs"'},"seven_day":{"used_percentage":30,"resets_at":'"$wr"'}}}' "$1"; }
 api() { printf '{"session_id":"shot-api","model":{"display_name":"Opus 5 (1M context)"},"effort":{"level":"xhigh"},"context_window":{"used_percentage":5,"context_window_size":1000000},"cost":{"total_cost_usd":%s},"workspace":{"current_dir":"'"$DEMO"'"}}' "$1"; }
 
 # Two renders, not one: the turn price is a DELTA between consecutive renders of
@@ -70,7 +70,11 @@ shoot() {
   printf '%s' "$out" > "$OUT/$3.ansi"
   echo "warning: $3 never rendered a frame containing '$want'" >&2
 }
-# The "(F22%)" chip is fed from ~/.claude/quota.json and never from the payload
+# The "(F22%)" chip is fed from ~/.claude/quota.json and never from the payload,
+# and it is drawn only while the SCOPED MODEL is the one in play -- which is why
+# this one shot runs on Fable and every other runs on Opus: a cap the session
+# cannot spend is not shown, so an Opus payload here would picture a bar the
+# script no longer draws.
 # -- a session's `rate_limits` carries the two account-wide windows and nothing
 # else, so only quota-probe.sh can ever know a per-model cap. The subscription
 # shot therefore needs a state file. It repeats the payload's own 12%/30% so the
