@@ -1967,6 +1967,7 @@ out="${out%%@@SUB@@*}${sub_render}${out#*@@SUB@@}"
 #   1. the cached prefix has EXPIRED, dearly    -> red blink
 #   2. it is about to expire, dearly            -> orange blink
 #   3. the context is simply enormous (>300K)   -> static red
+#      (Opus/Fable: static orange >300K, red only from 650K)
 # (1) and (2) also blink the "-N" clock, and the pair is the whole point: the
 # clock says how long the cache has left, the token count says how much it is
 # worth. Watching either alone tells you half of "is idling here about to cost
@@ -1992,13 +1993,21 @@ if [ -n "$abs_label" ]; then
     expired)  ctx_render=$(pulse red "$abs_label") ;;
     expiring) ctx_render=$(pulse orange "$abs_label") ;;
     *)
-      if [ "${used_tokens:-0}" -gt 300000 ] 2>/dev/null; then
-        # Static red, NOT a blink: an oversized context is a standing fact, not
-        # an event. The blink is reserved for the cache-TTL cases above, which
-        # are time-critical and only fire while idle — letting the size rule
-        # blink too meant a 380K session flashing red for the whole turn, which
-        # is exactly when there is nothing you can do about it.
+      # Static, NOT a blink: an oversized context is a standing fact, not
+      # an event. The blink is reserved for the cache-TTL cases above, which
+      # are time-critical and only fire while idle — letting the size rule
+      # blink too meant a 380K session flashing red for the whole turn, which
+      # is exactly when there is nothing you can do about it.
+      # On Opus/Fable (always a 1M window) 300K is a third of the room, not an
+      # emergency: it goes orange there, and red only from 650K.
+      if [ -n "$is_1m_family" ] && [ "${used_tokens:-0}" -ge 650000 ] 2>/dev/null; then
         ctx_render="${RED}${abs_label}${RESET}"
+      elif [ "${used_tokens:-0}" -gt 300000 ] 2>/dev/null; then
+        if [ -n "$is_1m_family" ]; then
+          ctx_render="${ORANGE}${abs_label}${RESET}"
+        else
+          ctx_render="${RED}${abs_label}${RESET}"
+        fi
       else
         ctx_render="${BLUE}${abs_label}${RESET}"
       fi

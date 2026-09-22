@@ -205,7 +205,7 @@ priority order:
 |---------|--------|
 | the cached prefix has **expired** (idle ≥ TTL, §3.1) | red / normal |
 | it is **about to expire** (idle ≥ 0.8 × TTL) | orange / normal |
-| context is simply **enormous** (> 300K tokens) | red, **static** |
+| context is simply **enormous** (> 300K tokens) | red, **static** — on Opus/Fable **orange** > 300K, red only **≥ 650K** |
 
 The first two **also blink the `-N` clock and its `miss+=$…` price**, in the
 same colour on the same beat, and that pairing is the entire point: the clock
@@ -215,6 +215,12 @@ sitting here about to cost me a dollar", which is why they light up together
 rather than separately. The third trigger is standalone and does **not** blink —
 an oversized context is a standing fact, not an event, and there is nothing to
 do about it mid-turn.
+
+On Opus and Fable the size rule is split in two. Their window is always 1M, so
+300K is a third of the room — worth a glance, not an alarm — and a flat red
+there cried wolf for most of every long session. They turn **orange** above
+300K and keep **red** for **650K** and up, where compaction is genuinely close.
+Every other model keeps the single red step at 300K.
 
 Two deliberate choices:
 
@@ -3701,6 +3707,7 @@ out="${out%%@@SUB@@*}${sub_render}${out#*@@SUB@@}"
 #   1. the cached prefix has EXPIRED, dearly    -> red blink
 #   2. it is about to expire, dearly            -> orange blink
 #   3. the context is simply enormous (>300K)   -> static red
+#      (Opus/Fable: static orange >300K, red only from 650K)
 # (1) and (2) also blink the "-N" clock, and the pair is the whole point: the
 # clock says how long the cache has left, the token count says how much it is
 # worth. Watching either alone tells you half of "is idling here about to cost
@@ -3726,13 +3733,21 @@ if [ -n "$abs_label" ]; then
     expired)  ctx_render=$(pulse red "$abs_label") ;;
     expiring) ctx_render=$(pulse orange "$abs_label") ;;
     *)
-      if [ "${used_tokens:-0}" -gt 300000 ] 2>/dev/null; then
-        # Static red, NOT a blink: an oversized context is a standing fact, not
-        # an event. The blink is reserved for the cache-TTL cases above, which
-        # are time-critical and only fire while idle — letting the size rule
-        # blink too meant a 380K session flashing red for the whole turn, which
-        # is exactly when there is nothing you can do about it.
+      # Static, NOT a blink: an oversized context is a standing fact, not
+      # an event. The blink is reserved for the cache-TTL cases above, which
+      # are time-critical and only fire while idle — letting the size rule
+      # blink too meant a 380K session flashing red for the whole turn, which
+      # is exactly when there is nothing you can do about it.
+      # On Opus/Fable (always a 1M window) 300K is a third of the room, not an
+      # emergency: it goes orange there, and red only from 650K.
+      if [ -n "$is_1m_family" ] && [ "${used_tokens:-0}" -ge 650000 ] 2>/dev/null; then
         ctx_render="${RED}${abs_label}${RESET}"
+      elif [ "${used_tokens:-0}" -gt 300000 ] 2>/dev/null; then
+        if [ -n "$is_1m_family" ]; then
+          ctx_render="${ORANGE}${abs_label}${RESET}"
+        else
+          ctx_render="${RED}${abs_label}${RESET}"
+        fi
       else
         ctx_render="${BLUE}${abs_label}${RESET}"
       fi
