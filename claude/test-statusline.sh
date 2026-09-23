@@ -193,6 +193,10 @@ JSON
 "$STATE" set -1 0 8 "$week_reset" 14 "$week_reset" Fable >/dev/null
 out=$(printf '%s' "$payload" | sh "$SCRIPT")
 assert_contains "scoped cap: the weekly figure is the ACCOUNT's"    "$out" "92%"
+# Fable's cap is not an Opus session's business: no chip there.
+assert_not_contains "scoped cap: another model's cap stays off the bar" "$out" "(F86%)"
+fable_payload=$(printf '%s' "$payload" | sed 's/"Claude Opus"/"Claude Fable"/')
+out=$(printf '%s' "$fable_payload" | sh "$SCRIPT")
 assert_contains "scoped cap: the model's own budget rides beside it" "$out" "(F86%)"
 
 # The chip belongs to the model, so the park it causes belongs to the chip --
@@ -227,14 +231,23 @@ sub="$proj/$session/subagents"
 mkdir -p "$sub"
 tp="$proj/$session.jsonl"
 
+# Every line carries a UTC stamp: an agent counts as stopped only when its
+# newest stop-marker is at least as recent as the last line it wrote itself.
+# Agents write at 10:00; markers land from 10:05 on; a wake writes later still.
+T0='"timestamp":"2026-09-20T10:00:00.000Z",'
+# A line the agent itself writes when something wakes it, stamped at 10:MM.
+wake() {
+  printf '{"type":"assistant","timestamp":"2026-09-20T10:%s:00.000Z","agentId":"%s","message":{"role":"assistant"}}\n' "$2" "$1" >> "$sub/agent-$1.jsonl"
+}
+
 # id / model / effort ("-" = none, as Haiku writes it) / requested-alias
 mk_agent() {
   printf '{"agentType":"general-purpose","description":"t","toolUseId":"toolu_%s","spawnDepth":1,"model":"%s"}' \
     "$1" "$4" > "$sub/agent-$1.meta.json"
   eff=",\"effort\":\"$3\""
   [ "$3" = "-" ] && eff=""
-  printf '{"type":"user","isSidechain":true,"agentId":"%s","message":{"role":"user"}}\n{"type":"assistant","agentId":"%s"%s,"message":{"role":"assistant","model":"%s"}}\n' \
-    "$1" "$1" "$eff" "$2" > "$sub/agent-$1.jsonl"
+  printf '{"type":"user",%s"isSidechain":true,"agentId":"%s","message":{"role":"user"}}\n{"type":"assistant",%s"agentId":"%s"%s,"message":{"role":"assistant","model":"%s"}}\n' \
+    "$T0" "$1" "$T0" "$1" "$eff" "$2" > "$sub/agent-$1.jsonl"
 }
 mk_agent A claude-opus-5              high   opus
 mk_agent B claude-opus-5              high   opus
@@ -250,10 +263,10 @@ mk_agent G claude-opus-5              high   opus
   printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_A","name":"Task"},{"type":"tool_use","id":"toolu_D","name":"Task"}]}}\n'
   # D returned; E was launched async in the SAME user turn. The launch receipt
   # must not be mistaken for D's result, nor D's result for E's.
-  printf '{"type":"user","message":{"content":[{"tool_use_id":"toolu_D","type":"tool_result","content":"the report"},{"tool_use_id":"toolu_E","type":"tool_result","content":[{"type":"text","text":"Async agent launched successfully. agentId: E"}]}]}}\n'
+  printf '{"type":"user","timestamp":"2026-09-20T10:05:00.000Z","message":{"content":[{"tool_use_id":"toolu_D","type":"tool_result","content":"the report"},{"tool_use_id":"toolu_E","type":"tool_result","content":[{"type":"text","text":"Async agent launched successfully. agentId: E"}]}]}}\n'
   # F was launched async and has since notified that it stopped.
   printf '{"type":"user","message":{"content":[{"tool_use_id":"toolu_F","type":"tool_result","content":[{"type":"text","text":"Async agent launched successfully. agentId: F"}]}]}}\n'
-  printf '{"type":"user","message":{"content":"<task-notification>\\n<task-id>F</task-id>\\n<tool-use-id>toolu_F</tool-use-id>\\n<status>completed</status>\\n</task-notification>"}}\n'
+  printf '{"type":"user","timestamp":"2026-09-20T10:05:00.000Z","message":{"content":"<task-notification>\\n<task-id>F</task-id>\\n<tool-use-id>toolu_F</tool-use-id>\\n<status>completed</status>\\n</task-notification>"}}\n'
 } > "$tp"
 
 # G never got a marker but has been silent for hours: a corpse, not a worker.
@@ -292,7 +305,7 @@ tp="$proj/$session.jsonl"
 mk_agent F claude-fable-5-1 high fable
 {
   printf '{"type":"user","message":{"content":[{"tool_use_id":"toolu_F","type":"tool_result","content":[{"type":"text","text":"Async agent launched successfully. agentId: F"}]}]}}\n'
-  printf '{"type":"user","message":{"content":"<task-notification>\\n<task-id>F</task-id>\\n<tool-use-id>toolu_F</tool-use-id>\\n<status>completed</status>\\n</task-notification>"}}\n'
+  printf '{"type":"user","timestamp":"2026-09-20T10:05:00.000Z","message":{"content":"<task-notification>\\n<task-id>F</task-id>\\n<tool-use-id>toolu_F</tool-use-id>\\n<status>completed</status>\\n</task-notification>"}}\n'
   # Everything after the marker: enough of it to push the marker out of a small tail.
   i=0
   while [ "$i" -lt 200 ]; do
@@ -330,7 +343,7 @@ tp="$proj/$session.jsonl"
 mk_agent F claude-fable-5-1 high fable
 {
   printf '{"type":"user","message":{"content":[{"tool_use_id":"toolu_F","type":"tool_result","content":[{"type":"text","text":"Async agent launched successfully. agentId: F"}]}]}}\n'
-  printf '{"type":"user","message":{"content":"<task-notification>\\n<task-id>F</task-id>\\n<tool-use-id>toolu_F</tool-use-id>\\n<status>completed</status>\\n</task-notification>"}}\n'
+  printf '{"type":"user","timestamp":"2026-09-20T10:05:00.000Z","message":{"content":"<task-notification>\\n<task-id>F</task-id>\\n<tool-use-id>toolu_F</tool-use-id>\\n<status>completed</status>\\n</task-notification>"}}\n'
 } > "$tp"
 payload=$(cat <<JSON
 {"session_id":"$session","model":{"display_name":"Opus 5 (1M context)"},
@@ -349,11 +362,11 @@ while [ "$i" -lt 200 ]; do
   i=$((i + 1))
 done
 printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_S1","name":"SendMessage","input":{"to":"F","summary":"one more thing","message":"carry on"}}]}}\n' >> "$tp"
-touch "$sub/agent-F.jsonl"
+wake F 10
 out=$(printf '%s' "$payload" | CLAUDE_SUB_TAIL=4000 sh "$SCRIPT")
 assert_contains "resumed: a SendMessage after the marker brings it back" "$out" "+{F5.1h}"
 # The second stop: same toolUseId, new notification, later than the resume.
-printf '{"type":"user","message":{"content":"<task-notification>\\n<task-id>F</task-id>\\n<tool-use-id>toolu_F</tool-use-id>\\n<status>completed</status>\\n</task-notification>"}}\n' >> "$tp"
+printf '{"type":"user","timestamp":"2026-09-20T10:20:00.000Z","message":{"content":"<task-notification>\\n<task-id>F</task-id>\\n<tool-use-id>toolu_F</tool-use-id>\\n<status>completed</status>\\n</task-notification>"}}\n' >> "$tp"
 # A message to something that is not one of our agents changes nothing.
 printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_S2","name":"SendMessage","input":{"to":"reviewer","message":"ping"}}]}}\n' >> "$tp"
 out=$(printf '%s' "$payload" | CLAUDE_SUB_TAIL=4000 sh "$SCRIPT")
@@ -377,8 +390,8 @@ tp="$proj/$session.jsonl"
 mk_forked() {
   printf '{"agentType":"general-purpose","description":"/code-review main","name":"%s","spawnDepth":1,"requestShape":"background","requestNonInteractive":true}' \
     "$2" > "$sub/agent-$1.meta.json"
-  printf '{"type":"user","isSidechain":true,"agentId":"%s","message":{"role":"user"}}\n{"type":"assistant","agentId":"%s","effort":"%s","message":{"role":"assistant","model":"%s"}}\n' \
-    "$1" "$1" "$4" "$3" > "$sub/agent-$1.jsonl"
+  printf '{"type":"user",%s"isSidechain":true,"agentId":"%s","message":{"role":"user"}}\n{"type":"assistant",%s"agentId":"%s","effort":"%s","message":{"role":"assistant","model":"%s"}}\n' \
+    "$T0" "$1" "$T0" "$1" "$4" "$3" > "$sub/agent-$1.jsonl"
 }
 mk_forked P code-review   claude-opus-5   high
 mk_forked Q code-review-2 claude-sonnet-5 medium
@@ -402,14 +415,14 @@ assert_contains "forked skill: an agent with no toolUseId is still counted" "$ou
 
 # P stops. Its notification carries the launch tool-use-id, which is NOT the key
 # here, and the agent id, which is -- so this retires it only via <task-id>.
-printf '{"type":"user","message":{"content":"<task-notification>\\n<task-id>P</task-id>\\n<tool-use-id>toolu_P</tool-use-id>\\n<status>killed</status>\\n</task-notification>"}}\n' >> "$tp"
+printf '{"type":"user","timestamp":"2026-09-20T10:05:00.000Z","message":{"content":"<task-notification>\\n<task-id>P</task-id>\\n<tool-use-id>toolu_P</tool-use-id>\\n<status>killed</status>\\n</task-notification>"}}\n' >> "$tp"
 out=$(printf '%s' "$payload" | sh "$SCRIPT")
 assert_not_contains "forked skill: its notification retires it by task-id" "$out" "O5h"
 assert_contains     "forked skill: the one still working stays"            "$out" "+{S5m}"
 
 # Resumed the way Victor actually resumes one of these: by @name, not by id.
 printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_S3","name":"SendMessage","input":{"to":"code-review","message":"carry on"}}]}}\n' >> "$tp"
-touch "$sub/agent-P.jsonl"
+wake P 10
 out=$(printf '%s' "$payload" | sh "$SCRIPT")
 assert_contains "forked skill: a SendMessage to its @name brings it back" "$out" "+{O5h,S5m}"
 
